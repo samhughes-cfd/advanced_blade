@@ -79,6 +79,14 @@ class SectionSolveResult:
     mass_center: NDArray[np.float64]
     elastic_center: NDArray[np.float64]
     E_omega_basis: NDArray[np.float64] | None = None
+    #: Timoshenko shear correction for Vy (energy-consistent open-section estimate; defaults to 5/6).
+    k_y: float = 5.0 / 6.0
+    #: Timoshenko shear correction for Vz (energy-consistent open-section estimate; defaults to 5/6).
+    k_z: float = 5.0 / 6.0
+    #: Populated when :class:`~blade_precompute.section_properties.api.AnalysisConfig` runs interlaminar post-processing.
+    interlaminar: object | None = None
+    #: Populated when ``AnalysisConfig`` runs **local orthotropic panel** buckling (distinct from GBT ``section_beam_model``).
+    panel_buckling: object | None = None
 
 
 @runtime_checkable

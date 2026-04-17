@@ -9,7 +9,7 @@ Run: ``python -m blade_precompute.section_properties``.
 
 from __future__ import annotations
 
-from .api import SectionAnalysis
+from .api import AnalysisConfig, SectionAnalysis
 from .core.types import MaterialProps, SectionProps, SectionSolveResult, SectionSolverProtocol
 from .engine.clpt_recovery import clpt_ply_stresses_section_frame, rotate_plies_to_material
 from .engine.failure_criteria import (
@@ -19,7 +19,24 @@ from .engine.failure_criteria import (
     von_mises_plane_stress_fi,
 )
 from .engine.geometry import MaterialAssignment, SectionDefinition, SubcomponentGeometry
-from .engine.interlaminar_recovery import delamination_fi, interlaminar_stress_recovery
+from .engine.interlaminar_recovery import (
+    build_interlaminar_operators,
+    delamination_fi,
+    interlaminar_stress_recovery,
+    recover_interlaminar,
+)
+from .engine.panel_buckling import (
+    PanelBucklingResult,
+    PanelBucklingSectionResult,
+    SectionBucklingResult,
+    assess_panel_buckling_section,
+    composite_edge_panel_stresses_from_reference,
+)
+from .engine.strip_shear_equilibrium import (
+    StripShearFlowSummary,
+    compute_strip_shear_flow_summary,
+    recover_interlaminar_strip_equilibrium,
+)
 from .engine.isotropic_recovery import isotropic_membrane_stresses, von_mises_plane_stress
 from .engine.laminate import LaminateDefinition, tsai_wu_fi, tsai_wu_polynomial
 from .engine.materials import IsotropicMaterial, OrthotropicPly, plane_stress_Q, plane_stress_Q_isotropic
@@ -58,6 +75,7 @@ def section_props_from_solve(res: SectionSolveResult) -> SectionProps:
 
 __all__ = [
     "SectionAnalysis",
+    "AnalysisConfig",
     "MaterialProps",
     "MaterialAssignment",
     "SubcomponentGeometry",
@@ -92,4 +110,14 @@ __all__ = [
     "von_mises_plane_stress",
     "interlaminar_stress_recovery",
     "delamination_fi",
+    "recover_interlaminar",
+    "build_interlaminar_operators",
+    "assess_panel_buckling_section",
+    "composite_edge_panel_stresses_from_reference",
+    "PanelBucklingResult",
+    "PanelBucklingSectionResult",
+    "SectionBucklingResult",
+    "StripShearFlowSummary",
+    "compute_strip_shear_flow_summary",
+    "recover_interlaminar_strip_equilibrium",
 ]

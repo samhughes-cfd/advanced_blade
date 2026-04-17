@@ -84,6 +84,8 @@ class SectionPropertiesOutputs:
     png_paths: list[Path]
     section_results: tuple[object, ...]
     section_definitions: tuple[object, ...]
+    #: Local orthotropic skin/stringer panel screening (``section_properties``), not GBT ``section_beam_model``.
+    panel_local_buckling_json: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -576,32 +578,110 @@ def _section_properties_impl(
 
     from blade_precompute.section_optimisation.api import BladeDesignProblem
     from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
-    from blade_precompute.section_properties.api import SectionAnalysis
+    from blade_precompute.section_properties.api import AnalysisConfig, SectionAnalysis
 
     bg = bg_override if bg_override is not None else BladeDesignProblem.load_geometry(blade_yaml)
     dv0 = _default_dv0(int(bg.z_stations.shape[0]))
     section_defs = SectionBuilder.build(dv0, bg)
 
-    analysis = SectionAnalysis()
-    results = [analysis.solve(sd) for sd in section_defs]
+    extreme_raw = BladeDesignProblem.load_extreme_loads_dat(inp.extreme_loads_path, z_geometry=None)
+    z_raw = np.asarray(extreme_raw.z_stations, dtype=np.float64).ravel()
+    if z_raw.size < 2:
+        raise ValueError(
+            "section_properties local panel buckling requires at least two z stations in extreme loads."
+        )
+
+    z = np.asarray([float(sd.station_z) for sd in section_defs], dtype=np.float64)
+
+    def _interp_extreme(col: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.interp(z, z_raw, np.asarray(col, dtype=np.float64).ravel())
+
+    N = _interp_extreme(extreme_raw.N)
+    Vy = _interp_extreme(extreme_raw.Vy)
+    Vz = _interp_extreme(extreme_raw.Vz)
+    My = _interp_extreme(extreme_raw.My)
+    Mz = _interp_extreme(extreme_raw.Mz)
+    T = _interp_extreme(extreme_raw.T)
+
+    chord = np.asarray(inp.chord_m, dtype=np.float64).ravel()
+    analysis = SectionAnalysis(config=AnalysisConfig(run_panel_buckling=True, merge_tolerance=1e-6))
+    panel_a_m: list[float] = []
+    results: list[object] = []
+    for i, sd in enumerate(section_defs):
+        chord_m_i = float(chord[min(i, chord.shape[0] - 1)]) if chord.size > 0 else 1.0
+        a_i, _ = _buckling_member_length_m(
+            "dz_station",
+            station_index=i,
+            chord_m=chord_m_i,
+            z_stations=z,
+            override_m=None,
+        )
+        panel_a_m.append(float(a_i))
+        f6 = np.array([N[i], My[i], Mz[i], T[i], Vy[i], Vz[i]], dtype=np.float64)
+        results.append(
+            analysis.solve(
+                sd,
+                panel_frame_spacing_m=float(a_i),
+                panel_reference_forces_6=f6,
+            )
+        )
 
     n = len(results)
-    z = np.asarray([float(sd.station_z) for sd in section_defs], dtype=np.float64)
     K6 = np.stack([np.asarray(r.K6, dtype=np.float64) for r in results], axis=0).reshape(n, 6, 6)
     K7 = np.stack([np.asarray(r.K7, dtype=np.float64) for r in results], axis=0).reshape(n, 7, 7)
 
     summary_rows = []
-    for sd, r in zip(section_defs, results):
-        summary_rows.append(
+    for i, (sd, r) in enumerate(zip(section_defs, results)):
+        row: dict[str, Any] = {
+            "station_z": float(sd.station_z),
+            "area": float(r.area),
+            "mass_per_length": float(r.mass_per_length),
+            "elastic_center": np.asarray(r.elastic_center, dtype=np.float64),
+            "mass_center": np.asarray(r.mass_center, dtype=np.float64),
+            "shear_center": np.asarray(r.shear_center, dtype=np.float64),
+            "panel_local_a_m": float(panel_a_m[i]),
+        }
+        pb = getattr(r, "panel_buckling", None)
+        if pb is not None:
+            row["panel_local_BI_max"] = float(pb.BI_max)
+            row["panel_local_n_buckled"] = int(pb.n_buckled)
+            row["panel_local_critical_edge"] = int(pb.critical_edge)
+        summary_rows.append(row)
+
+    panel_stations: list[dict[str, Any]] = []
+    for i, sd in enumerate(section_defs):
+        r = results[i]
+        pb = getattr(r, "panel_buckling", None)
+        f6 = np.array([N[i], My[i], Mz[i], T[i], Vy[i], Vz[i]], dtype=np.float64)
+        edge_payload: list[dict[str, Any]] | None = None
+        if pb is not None:
+            edge_payload = [dataclasses.asdict(er) for er in pb.edge_results]
+        panel_stations.append(
             {
                 "station_z": float(sd.station_z),
-                "area": float(r.area),
-                "mass_per_length": float(r.mass_per_length),
-                "elastic_center": np.asarray(r.elastic_center, dtype=np.float64),
-                "mass_center": np.asarray(r.mass_center, dtype=np.float64),
-                "shear_center": np.asarray(r.shear_center, dtype=np.float64),
+                "panel_a_m": float(panel_a_m[i]),
+                "reference_forces_6": f6.tolist(),
+                "panel_local": None
+                if pb is None
+                else {
+                    "BI_max": float(pb.BI_max),
+                    "critical_edge": int(pb.critical_edge),
+                    "n_buckled": int(pb.n_buckled),
+                    "edges": edge_payload,
+                },
             }
         )
+
+    panel_json_path = (out_stage / "panel_local_buckling.json").resolve()
+    _write_json(
+        panel_json_path,
+        {
+            "kind": "orthogonal_skin_panel_local",
+            "distinction": "Not GBT section_beam_model member buckling.",
+            "blade_yaml": str(blade_yaml.resolve()),
+            "stations": panel_stations,
+        },
+    )
 
     summary_json = _write_json(
         out_stage / "section_solve_summary.json",
@@ -632,6 +712,7 @@ def _section_properties_impl(
         png_paths=png_paths,
         section_results=tuple(results),
         section_definitions=tuple(section_defs),
+        panel_local_buckling_json=panel_json_path,
     )
 
 
