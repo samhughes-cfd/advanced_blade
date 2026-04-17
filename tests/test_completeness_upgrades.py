@@ -173,10 +173,10 @@ def test_operational_extreme_workflow_validation_fails_on_tag_mismatch() -> None
 def test_renamed_packages_import_shims() -> None:
     import blade_precompute.design_optimisation as blade_design_optimization
     import blade_analysis.fatigue_damage as fatigue_damage
-    import blade_utilities.recovery as stress_recovery
+    import blade_utilities.recovery as recovery
 
     assert hasattr(bm, "BeamModel")
     assert hasattr(sm, "SectionAnalysis")
-    assert hasattr(stress_recovery, "RecoveryCacheBuilder")
+    assert hasattr(recovery, "RecoveryCacheBuilder")
     assert hasattr(fatigue_damage, "FatigueAnalysis")
     assert hasattr(blade_design_optimization, "BladeDesignProblem")

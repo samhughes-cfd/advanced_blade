@@ -1,4 +1,4 @@
-"""CLI: build or load a fused recovery cache → :class:`~recovery_cache.engine.cache.RecoveryCache`."""
+"""CLI helpers for building or loading a smoke :class:`~blade_utilities.recovery.tensor_cache.cache.RecoveryCache`."""
 
 from __future__ import annotations
 
@@ -10,14 +10,11 @@ import numpy as np
 from blade_precompute.beam_model.engine.kinematics import rotmat_from_small_curvature
 from blade_precompute.design_optimisation.core.types import DesignVector, OptimBladeGeometry
 from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
-from blade_utilities.recovery import RecoveryCache, RecoveryCacheBuilder, load_cache
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial, OrthotropicPly
 from blade_precompute.section_properties.engine.solver import MidsurfaceSectionSolver
 
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+from blade_utilities.recovery import RecoveryCache, RecoveryCacheBuilder, load_cache
 
 
 def _ply_gfrp(t_ply: float) -> OrthotropicPly:
@@ -60,7 +57,7 @@ def _ply_cfrp(t_ply: float) -> OrthotropicPly:
     )
 
 
-def _build_smoke_cache() -> RecoveryCache:
+def build_smoke_recovery_cache() -> RecoveryCache:
     n_s = 3
     z = np.linspace(0.0, 4.0, n_s, dtype=np.float64)
     L = float(z[-1])
@@ -131,7 +128,7 @@ def _build_smoke_cache() -> RecoveryCache:
     return RecoveryCache(**storage.__dict__)
 
 
-def _summarise(cache: RecoveryCache) -> None:
+def summarise_cache(cache: RecoveryCache) -> None:
     print("RecoveryCache:")
     print(f"  z_stations: {cache.z_stations.shape}")
     print(f"  L_rec shape: {cache.L_rec.shape}")
@@ -141,20 +138,18 @@ def _summarise(cache: RecoveryCache) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Load or build a smoke recovery cache (canonical: RecoveryCache).")
+    p = argparse.ArgumentParser(
+        description="Load or build a smoke recovery cache (canonical: blade_utilities.recovery)."
+    )
     p.add_argument(
         "--cache",
         type=Path,
         default=None,
-        help="Optional .npz written by recovery_cache.save_cache; default builds an in-memory smoke cache.",
+        help="Optional .npz from save_cache; default builds an in-memory smoke cache.",
     )
     args = p.parse_args()
     if args.cache is not None:
-        cache = load_cache(args.cache)
+        cache = load_cache(str(args.cache))
     else:
-        cache = _build_smoke_cache()
-    _summarise(cache)
-
-
-if __name__ == "__main__":
-    main()
+        cache = build_smoke_recovery_cache()
+    summarise_cache(cache)

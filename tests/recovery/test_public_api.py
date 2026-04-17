@@ -1,4 +1,4 @@
-"""Parity and consistency checks for recovery_operators public API."""
+"""Parity and consistency checks for blade_utilities.recovery operator API."""
 
 from __future__ import annotations
 

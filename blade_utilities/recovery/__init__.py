@@ -1,8 +1,9 @@
 """
 Fused beam stress/strain recovery (tensor cache + runtime operators + I/O).
 
-This package consolidates what previously lived under ``stress_recovery`` and
-``recovery_operators``. Those top-level modules remain as thin import shims.
+This package is the sole public entry for fused recovery. The former
+``blade_utilities.stress_recovery`` and ``blade_utilities.recovery_operators``
+packages were removed; migrate imports to ``blade_utilities.recovery``.
 
 Dependency policy (pragmatic): recovery builds on section homogenisation outputs
 from ``blade_precompute.section_properties`` (``SectionSolveResult``, CLPT bases,
