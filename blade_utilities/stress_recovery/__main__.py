@@ -10,7 +10,7 @@ import numpy as np
 from blade_precompute.beam_model.engine.kinematics import rotmat_from_small_curvature
 from blade_precompute.design_optimisation.core.types import DesignVector, OptimBladeGeometry
 from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
-from blade_utilities.stress_recovery import RecoveryCache, RecoveryCacheBuilder, load_cache
+from blade_utilities.recovery import RecoveryCache, RecoveryCacheBuilder, load_cache
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial, OrthotropicPly
 from blade_precompute.section_properties.engine.solver import MidsurfaceSectionSolver

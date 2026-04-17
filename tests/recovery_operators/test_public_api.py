@@ -10,7 +10,7 @@ from blade_precompute.section_properties.engine.laminate import LaminateDefiniti
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial, OrthotropicPly
 from blade_precompute.section_properties.engine.solver import MidsurfaceSectionSolver
 
-from blade_utilities.recovery_operators import (
+from blade_utilities.recovery import (
     apply_section_stress_operator,
     apply_span_derivative,
     apply_strain_operator,

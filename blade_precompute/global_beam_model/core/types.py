@@ -214,10 +214,10 @@ class BeamSolveResult:
     section_von_mises_fi_max_nodal: Optional[NDArray[np.float64]] = None
     section_delamination_fi_max_gp: Optional[NDArray[np.float64]] = None  # (n_s,) Tier-3 only
     section_delamination_fi_max_nodal: Optional[NDArray[np.float64]] = None
-    # Section-frame ply stress envelope (recovery_operators ``apply_section_stress_operator``)
+    # Section-frame ply stress envelope (``blade_utilities.recovery.apply_section_stress_operator``)
     section_stress_voigt_secframe_gp: Optional[NDArray[np.float64]] = None  # (n_s, 3)
     section_stress_voigt_secframe_nodal: Optional[NDArray[np.float64]] = None
-    # Spanwise d(FI)/dz via bundle ``D_z`` (recovery_operators ``apply_span_derivative``)
+    # Spanwise d(FI)/dz via bundle ``D_z`` (``blade_utilities.recovery.apply_span_derivative``)
     section_d_tsai_wu_fi_dz_gp: Optional[NDArray[np.float64]] = None
     section_d_tsai_wu_fi_dz_nodal: Optional[NDArray[np.float64]] = None
     # Tsai–Wu FI max over composite subcomponents per (station, ply); shape (n_s, n_ply_max)

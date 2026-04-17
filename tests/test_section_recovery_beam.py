@@ -90,8 +90,7 @@ def _tiny_geometry(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
 
 
 def test_enrich_beam_result_with_section_stress_smoke() -> None:
-    pytest.importorskip("blade_utilities.recovery_operators")
-    pytest.importorskip("blade_utilities.stress_recovery")
+    pytest.importorskip("blade_utilities.recovery")
 
     bg, dv = _tiny_geometry(3)
     section_defs = SectionBuilder.build(dv, bg)
@@ -144,10 +143,10 @@ def test_enrich_beam_result_with_section_stress_smoke() -> None:
 
 
 def test_recover_all_fi_matches_individual_evaluators() -> None:
-    pytest.importorskip("blade_utilities.stress_recovery")
+    pytest.importorskip("blade_utilities.recovery")
     import dataclasses
 
-    from blade_utilities.stress_recovery import RecoveryCache, RecoveryCacheBuilder
+    from blade_utilities.recovery import RecoveryCache, RecoveryCacheBuilder
 
     bg, dv = _tiny_geometry(4)
     section_defs = SectionBuilder.build(dv, bg)
@@ -174,7 +173,7 @@ def test_recover_all_fi_matches_individual_evaluators() -> None:
 
 
 def test_save_section_recovery_cache_to_npz(tmp_path) -> None:
-    pytest.importorskip("blade_utilities.stress_recovery")
+    pytest.importorskip("blade_utilities.recovery")
 
     from blade_precompute.global_beam_model.engine.section_recovery import save_section_recovery_cache_to_npz
 
@@ -213,7 +212,7 @@ def test_save_section_recovery_cache_to_npz(tmp_path) -> None:
 
 def test_section_recovery_plots_smoke() -> None:
     pytest.importorskip("matplotlib")
-    pytest.importorskip("blade_utilities.recovery_operators")
+    pytest.importorskip("blade_utilities.recovery")
 
     bg, dv = _tiny_geometry(3)
     section_defs = SectionBuilder.build(dv, bg)

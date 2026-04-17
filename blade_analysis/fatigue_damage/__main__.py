@@ -12,7 +12,7 @@ from blade_precompute.design_optimisation.core.types import DesignVector, OptimB
 from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
 from blade_analysis.fatigue_damage import FatigueAnalysis, SNcurve
 from blade_analysis.fatigue_damage.core.loads import ResultantHistory
-from blade_utilities.stress_recovery import RecoveryCache, RecoveryCacheBuilder, load_cache
+from blade_utilities.recovery import RecoveryCache, RecoveryCacheBuilder, load_cache
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial, OrthotropicPly
 from blade_precompute.section_properties.engine.solver import MidsurfaceSectionSolver

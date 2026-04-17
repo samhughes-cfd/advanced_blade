@@ -129,8 +129,7 @@ def resultants_to_recovery6(r7: NDArray[np.float64]) -> NDArray[np.float64]:
 def beam_resultants_to_section_recovery_order(r7: NDArray[np.float64]) -> NDArray[np.float64]:
     """
     Map beam seven-vector ``[N,Vy,Vz,My,Mz,T,B]`` to fused recovery column order
-    ``[N,My,Mz,T,Vy,Vz,B]`` used by ``blade_utilities.recovery_operators`` /
-    ``blade_utilities.stress_recovery``.
+    ``[N,My,Mz,T,Vy,Vz,B]`` used by ``blade_utilities.recovery``.
     """
     x = np.asarray(r7, dtype=np.float64)
     if x.shape[-1] != 7:

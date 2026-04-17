@@ -358,7 +358,7 @@ def plot_spanwise_section_stress_secframe(
     res: "BeamSolveResult",
     *,
     ax: "m_axes.Axes | None" = None,
-    title: str = "Section-frame ply stress (|σ| max, recovery_operators)",
+    title: str = "Section-frame ply stress (|σ| max, blade_utilities.recovery)",
 ) -> Tuple["Figure", Any]:
     plt = _require_pyplot()
     if ax is not None:

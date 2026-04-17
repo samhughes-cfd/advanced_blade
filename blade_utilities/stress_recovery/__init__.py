@@ -1,20 +1,28 @@
-"""Precomputed fused recovery operators for composite and isotropic subcomponents.
+"""
+Precomputed fused recovery operators (shim).
 
-Run: ``python -m recovery_cache``
+Canonical imports: ``blade_utilities.recovery``. This package re-exports the same
+public API for backward compatibility.
 """
 
-from .api import RecoveryCacheBuilder
-from .core.types import RecoveryCacheProtocol, RecoveryCacheStorage, RecoveryEvaluatorProtocol
-from .engine.builder import build_recovery_cache, plane_stress_voigt_from_R
-from .engine.cache import RecoveryCache
-from .io.persistence import load_cache, save_cache
+from blade_utilities.recovery import (
+    RecoveryCache,
+    RecoveryCacheBuilder,
+    RecoveryCacheProtocol,
+    RecoveryCacheStorage,
+    RecoveryEvaluatorProtocol,
+    build_recovery_cache,
+    load_cache,
+    plane_stress_voigt_from_R,
+    save_cache,
+)
 
 __all__ = [
     "RecoveryCache",
     "RecoveryCacheBuilder",
     "RecoveryCacheProtocol",
-    "RecoveryEvaluatorProtocol",
     "RecoveryCacheStorage",
+    "RecoveryEvaluatorProtocol",
     "build_recovery_cache",
     "load_cache",
     "plane_stress_voigt_from_R",

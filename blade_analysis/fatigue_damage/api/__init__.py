@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from blade_utilities.stress_recovery.engine.cache import RecoveryCache
+from blade_utilities.recovery import RecoveryCache
 
 from ..core.loads import ResultantHistory
 from ..core.workflows import (

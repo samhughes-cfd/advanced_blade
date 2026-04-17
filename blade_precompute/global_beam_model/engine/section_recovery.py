@@ -1,10 +1,9 @@
 """
 Section stress/strain recovery on the blade ``station_z`` grid.
 
-- ``blade_utilities.stress_recovery``: :class:`~blade_utilities.stress_recovery.engine.cache.RecoveryCache`
-  for ply stresses, Tsai–Wu, von Mises (isotropic), and Tier‑3 delamination FI.
-- ``blade_utilities.recovery_operators``: ``apply_strain_operator``, ``apply_section_stress_operator``
-  (section-frame σ), ``apply_span_derivative`` (d/dz along stations).
+Uses :mod:`blade_utilities.recovery` — :class:`~blade_utilities.recovery.tensor_cache.cache.RecoveryCache`
+for ply stresses, Tsai–Wu, von Mises (isotropic), and Tier‑3 delamination FI, plus operator helpers
+``apply_strain_operator``, ``apply_section_stress_operator``, ``apply_span_derivative``.
 
 ``apply_interlaminar_transfer`` is not wired here: Tier‑3 ``eval_delamination_fi`` already uses
 section-frame ply stresses and interlaminar models in ``section_properties``; a second bundle
@@ -20,13 +19,14 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import numpy as np
 from numpy.typing import NDArray
 
-from blade_utilities.recovery_operators import (
+from blade_utilities.recovery import (
+    RecoveryCache,
+    RecoveryCacheBuilder,
     apply_section_stress_operator,
     apply_span_derivative,
     apply_strain_operator,
     build_recovery_operator_bundle,
 )
-from blade_utilities.stress_recovery import RecoveryCache, RecoveryCacheBuilder
 
 from .constitutive import beam_resultants_to_section_recovery_order
 
@@ -280,7 +280,7 @@ def save_section_recovery_cache_to_npz(
     path: Path,
 ) -> None:
     """Write fused :class:`RecoveryCache` operators (Tier‑3 when ``n_s>=2``) for fatigue / reuse."""
-    from blade_utilities.stress_recovery import save_cache
+    from blade_utilities.recovery import save_cache
 
     z_sec = np.asarray(station_z, dtype=np.float64).ravel()
     z_n = res.z_nodal_out

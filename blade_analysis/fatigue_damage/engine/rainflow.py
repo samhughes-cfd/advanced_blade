@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 
 import rainflow
 
-from blade_utilities.stress_recovery.engine.cache import RecoveryCache
+from blade_utilities.recovery import RecoveryCache
 
 from ..core.loads import StressHistory
 from .stress_range import ply_stress_component, von_mises_plane_stress

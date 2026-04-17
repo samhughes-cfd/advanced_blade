@@ -6,8 +6,13 @@ import numpy as np
 
 from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
 from blade_precompute.design_optimisation.core.types import DesignVector, OptimBladeGeometry
-from blade_utilities.stress_recovery import RecoveryCache, build_recovery_cache, load_cache, save_cache
-from blade_utilities.stress_recovery.engine.builder import plane_stress_voigt_from_R
+from blade_utilities.recovery import (
+    RecoveryCache,
+    build_recovery_cache,
+    load_cache,
+    plane_stress_voigt_from_R,
+    save_cache,
+)
 from blade_precompute.section_properties.engine.clpt_recovery import clpt_ply_stresses_section_frame, rotate_plies_to_material
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial, OrthotropicPly
