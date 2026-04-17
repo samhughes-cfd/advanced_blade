@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+BeamSectionStiffnessSource = Literal["section_properties", "gbt"]
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -68,6 +70,10 @@ class OptimBladeGeometry:
     """Normalized section box height (fraction of chord) for default strip layout."""
     subcomponent_polylines_norm: dict[str, NDArray[np.float64]] | None = None
     """Optional normalized ``(y,z)`` polylines per subcomponent name; else built-in box."""
+    run_global_beam: bool = True
+    """If False, skip Tier-A global beam static solve (section-only iteration)."""
+    beam_section_stiffness_source: BeamSectionStiffnessSource = "section_properties"
+    """``section_properties`` (default) or ``gbt`` for :class:`SectionStation` ``K6``/``K7``."""
 
 
 @dataclass

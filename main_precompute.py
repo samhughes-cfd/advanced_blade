@@ -721,6 +721,21 @@ def _section_properties_impl(
 # ---------------------------------------------------------------------------
 
 
+def _beam_section_stations_from_gbt(
+    sec: SectionPropertiesOutputs,
+    bg: Any,
+    n_beam_nodes: int,
+) -> tuple[list[Any], list[str]]:
+    from blade_precompute.orchestration.gbt_beam_stations import beam_section_stations_from_gbt
+
+    return beam_section_stations_from_gbt(
+        np.asarray(sec.station_z, dtype=np.float64),
+        sec.section_definitions,
+        bg,
+        int(n_beam_nodes),
+    )
+
+
 def _beam_model_impl(
     inp: PrecomputeInputs,
     sec: SectionPropertiesOutputs,
@@ -743,6 +758,18 @@ def _beam_model_impl(
     from blade_precompute.section_optimisation.api import BladeDesignProblem
 
     bg = bg_override if bg_override is not None else BladeDesignProblem.load_geometry(blade_yaml)
+    if not getattr(bg, "run_global_beam", True):
+        stub = _write_json(
+            out_stage / "beam_result.json",
+            {
+                "skipped": True,
+                "run_global_beam": False,
+                "orchestration": orchestration.job_meta(),
+                "grid": dict(grid_meta) if grid_meta is not None else None,
+            },
+        )
+        return BeamModelOutputs(result_json=stub, png_paths=[])
+
     geom = BladeGeometry(
         z_stations=np.asarray(bg.z_stations, dtype=np.float64),
         r_ref=np.asarray(bg.r_ref, dtype=np.float64),
@@ -756,7 +783,12 @@ def _beam_model_impl(
         chi0=None,
     )
 
-    stations = stations_from_arrays(np.asarray(sec.station_z, dtype=np.float64), sec.K6, sec.K7)
+    stiffness_source = str(getattr(bg, "beam_section_stiffness_source", "section_properties")).lower()
+    gbt_reports: list[str] = []
+    if stiffness_source == "gbt":
+        stations, gbt_reports = _beam_section_stations_from_gbt(sec, bg, int(n_beam_nodes))
+    else:
+        stations = stations_from_arrays(np.asarray(sec.station_z, dtype=np.float64), sec.K6, sec.K7)
     analysis = BeamAnalysis.from_blade_geometry(geom, int(n_beam_nodes), stations, span_axis=2)
 
     model = analysis.model
@@ -902,6 +934,11 @@ def _beam_model_impl(
                 if res.section_tsai_wu_fi_ply_envelope_nodal is not None
                 else None,
             },
+            "gbt_beam_export": (
+                {"stiffness_source": "gbt", "mode_truncation_reports": gbt_reports}
+                if stiffness_source == "gbt"
+                else None
+            ),
             "grid": dict(grid_meta) if grid_meta is not None else None,
             "orchestration": orchestration.job_meta(),
         },

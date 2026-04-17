@@ -22,7 +22,7 @@ recovery tooling.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -73,6 +73,33 @@ class SectionStation:
     shear_center: Optional[NDArray[np.float64]] = None
 
 
+@dataclass(frozen=True)
+class SectionStiffnessArray:
+    """
+    Tabulated classical section stiffnesses along span coordinate ``s`` [m].
+
+    Each array has shape ``(n_stations,)``; ``s`` must be strictly increasing.
+    """
+
+    s: NDArray[np.float64]
+    EA: NDArray[np.float64]
+    EI_x: NDArray[np.float64]
+    EI_y: NDArray[np.float64]
+    GJ: NDArray[np.float64]
+    GA_x: NDArray[np.float64]
+    GA_y: NDArray[np.float64]
+
+    def __post_init__(self) -> None:
+        s = np.asarray(self.s, dtype=np.float64).ravel()
+        n = s.size
+        for name in ("EA", "EI_x", "EI_y", "GJ", "GA_x", "GA_y"):
+            a = np.asarray(getattr(self, name), dtype=np.float64).ravel()
+            if a.shape[0] != n:
+                raise ValueError(f"SectionStiffnessArray.{name} length {a.shape[0]} != len(s)={n}.")
+        if n >= 2 and np.any(np.diff(s) <= 0):
+            raise ValueError("SectionStiffnessArray.s must be strictly increasing.")
+
+
 @dataclass
 class BeamElement:
     """Two-node straight reference element in the reference configuration."""
@@ -80,6 +107,8 @@ class BeamElement:
     node_ids: Tuple[int, int]
     L0: float
     z_mid: float
+    #: Optional classical stiffness at element mid-span (diagnostics only; solver uses ``SectionStation``).
+    debug_section_stiffness: Any = None
 
 
 @dataclass

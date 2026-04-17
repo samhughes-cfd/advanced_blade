@@ -2,6 +2,8 @@
 # High-resolution source: example_blade_hires.yaml
 # Regenerate: python -m blade_precompute.section_optimisation.io.resample_blade_yaml example_blade_hires.yaml -o example_blade_10.yaml -n 10
 #
+run_global_beam: true
+beam_section_stiffness_source: section_properties
 ply_library:
   gfrp_ply:
     E1: 42000000000.0

@@ -12,7 +12,7 @@ from blade_precompute.section_properties.engine.geometry import MaterialAssignme
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial
 from blade_precompute.section_properties.io.yaml_materials import laminate_from_yaml_spec
 
-from ..core.types import OptimBladeGeometry, ThicknessRole
+from ..core.types import BeamSectionStiffnessSource, OptimBladeGeometry, ThicknessRole
 
 
 def _build_isotropic(spec: Mapping[str, Any], mat_key: str) -> IsotropicMaterial:
@@ -50,6 +50,13 @@ def load_blade_geometry(path: str | Path) -> OptimBladeGeometry:
     """
     path = Path(path)
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("YAML root must be a mapping.")
+    run_global_beam = bool(raw.get("run_global_beam", True))
+    bss = str(raw.get("beam_section_stiffness_source", "section_properties")).strip().lower()
+    if bss not in ("section_properties", "gbt"):
+        raise ValueError("beam_section_stiffness_source must be 'section_properties' or 'gbt'.")
+    beam_section_stiffness_source: BeamSectionStiffnessSource = bss  # type: ignore[assignment]
     ply_lib: dict[str, Any] = dict(raw.get("ply_library", {}))
     blade = raw.get("blade")
     if not isinstance(blade, dict):
@@ -102,4 +109,6 @@ def load_blade_geometry(path: str | Path) -> OptimBladeGeometry:
         thickness_role=thickness_role,
         cap_shear_lag_width=cap_shear_lag_width,
         box_height_frac=box_height_frac,
+        run_global_beam=run_global_beam,
+        beam_section_stiffness_source=beam_section_stiffness_source,
     )
