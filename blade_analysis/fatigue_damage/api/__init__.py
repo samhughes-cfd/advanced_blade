@@ -66,7 +66,7 @@ class FatigueAnalysis:
         Parse operational distributed-load ``.dat``, integrate each time slice, and return
         :class:`~blade_analysis.fatigue_damage.core.loads.ResultantHistory`.
         """
-        from blade_precompute.design_optimisation.io.distributed_load_dat import resultant_history_from_operational_dat
+        from blade_precompute.section_optimisation.io.distributed_load_dat import resultant_history_from_operational_dat
 
         return resultant_history_from_operational_dat(
             path, z_geometry=z_geometry, z_match_tol=z_match_tol

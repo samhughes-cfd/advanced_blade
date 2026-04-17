@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 
 from blade_precompute.beam_model.engine.kinematics import rotmat_from_small_curvature
-from blade_precompute.design_optimisation.core.types import DesignVector, OptimBladeGeometry
-from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
+from blade_precompute.section_optimisation.core.types import DesignVector, OptimBladeGeometry
+from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
 from blade_analysis.fatigue_damage import FatigueAnalysis, SNcurve
 from blade_analysis.fatigue_damage.core.loads import ResultantHistory
 from blade_utilities.recovery import RecoveryCache, RecoveryCacheBuilder, load_cache

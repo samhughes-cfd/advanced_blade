@@ -1,4 +1,4 @@
-"""Smoke: design_optimisation.interface.plot."""
+"""Smoke: section_optimisation.interface.plot."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ pytest.importorskip("matplotlib")
 
 import matplotlib.pyplot as plt
 
-from design_optimisation.core.types import DesignEvaluation, DesignVector, OptimisationResult
-from design_optimisation.interface import plot as dplot
+from blade_precompute.section_optimisation.core.types import DesignEvaluation, DesignVector, OptimisationResult
+from blade_precompute.section_optimisation.interface import plot as dplot
 
 
-def test_design_optimisation_plots_run():
+def test_section_optimisation_plots_run():
     n = 4
     z = np.linspace(0.0, 2.0, n)
     dv0 = DesignVector(

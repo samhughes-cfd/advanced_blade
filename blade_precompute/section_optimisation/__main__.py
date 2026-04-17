@@ -1,4 +1,4 @@
-"""CLI: blade sizing smoke — :class:`~design_optimisation.core.types.DesignEvaluation` or optimisation."""
+"""CLI: blade sizing smoke — :class:`~section_optimisation.core.types.DesignEvaluation` or optimisation."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from blade_precompute.design_optimisation import (
+from blade_precompute.section_optimisation import (
     BladeDesignProblem,
     BladeOptimizer,
     DesignProblem,
@@ -15,7 +15,7 @@ from blade_precompute.design_optimisation import (
     ExtremeLoads,
     OptimBladeGeometry,
 )
-from blade_precompute.design_optimisation.core.types import DesignEvaluation, OptimizationObjective, OptimisationResult
+from blade_precompute.section_optimisation.core.types import DesignEvaluation, OptimizationObjective, OptimisationResult
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial, OrthotropicPly
 
@@ -73,7 +73,9 @@ def _ply_cfrp(t_ply: float) -> OrthotropicPly:
     )
 
 
-def _smoke_problem_from_yaml(yaml_path: Path) -> tuple[BladeDesignProblem, DesignVector]:
+def _smoke_problem_from_yaml(
+    yaml_path: Path, *, objective: OptimizationObjective = "min_mass"
+) -> tuple[BladeDesignProblem, DesignVector]:
     bg = BladeDesignProblem.load_geometry(yaml_path)
     z = np.asarray(bg.z_stations, dtype=np.float64)
     L = float(z[-1]) if z.size else 1.0
@@ -258,7 +260,7 @@ def main() -> None:
         _print_optimisation(res)
 
     if args.plot or args.plot_out is not None:
-        from blade_precompute.design_optimisation.interface import plot as dplot
+        from blade_precompute.section_optimisation.interface import plot as dplot
 
         z = np.asarray(sizing.problem.blade_geometry.z_stations, dtype=np.float64)
         figs = []

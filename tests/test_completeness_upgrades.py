@@ -10,8 +10,8 @@ import yaml
 import blade_precompute.beam_model as bm
 import blade_precompute.section_properties as sm
 from blade_precompute.beam_model.engine.interp import interp_K7, stations_from_arrays
-from blade_precompute.design_optimisation.core.verification import ReferenceStation, compute_station_metrics
-from blade_precompute.design_optimisation.engine import beam_k7
+from blade_precompute.section_optimisation.core.verification import ReferenceStation, compute_station_metrics
+from blade_precompute.section_optimisation.engine import beam_k7
 from blade_analysis.fatigue_damage.core.loads import ResultantHistory
 from blade_analysis.fatigue_damage.core.workflows import (
     ExtremeWorkflowSpec,
@@ -119,7 +119,7 @@ def test_beam_k7_rotation_override() -> None:
     n = 3
     K7 = np.stack([np.eye(7) for _ in range(n)], axis=0)
     z = np.linspace(0.0, 2.0, n)
-    from blade_precompute.design_optimisation.core.types import ExtremeLoads, OptimBladeGeometry
+    from blade_precompute.section_optimisation.core.types import ExtremeLoads, OptimBladeGeometry
 
     ext = ExtremeLoads(
         z_stations=z,
@@ -171,12 +171,12 @@ def test_operational_extreme_workflow_validation_fails_on_tag_mismatch() -> None
 
 
 def test_renamed_packages_import_shims() -> None:
-    import blade_precompute.design_optimisation as blade_design_optimization
     import blade_analysis.fatigue_damage as fatigue_damage
+    import blade_precompute.section_optimisation as section_optimisation
     import blade_utilities.recovery as recovery
 
     assert hasattr(bm, "BeamModel")
     assert hasattr(sm, "SectionAnalysis")
     assert hasattr(recovery, "RecoveryCacheBuilder")
     assert hasattr(fatigue_damage, "FatigueAnalysis")
-    assert hasattr(blade_design_optimization, "BladeDesignProblem")
+    assert hasattr(section_optimisation, "BladeDesignProblem")

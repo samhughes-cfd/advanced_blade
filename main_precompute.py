@@ -93,7 +93,7 @@ class BeamModelOutputs:
 
 
 @dataclass(frozen=True)
-class DesignOptimisationOutputs:
+class SectionOptimisationOutputs:
     result_json: Path
     png_paths: list[Path]
 
@@ -155,7 +155,7 @@ class BeamModelParams:
 
 
 @dataclass(frozen=True)
-class DesignOptimisationParams:
+class SectionOptimisationParams:
     inp: PrecomputeInputs
     out_dir: Path
     blade_yaml: Path
@@ -518,7 +518,7 @@ def _section_geometry_impl(
 
 
 def _default_dv0(n_station: int):
-    from blade_precompute.design_optimisation.core.types import DesignVector
+    from blade_precompute.section_optimisation.core.types import DesignVector
 
     n = int(n_station)
     return DesignVector(
@@ -574,8 +574,8 @@ def _section_properties_impl(
     out_stage = (out_dir / "section_properties").resolve()
     out_stage.mkdir(parents=True, exist_ok=True)
 
-    from blade_precompute.design_optimisation.api import BladeDesignProblem
-    from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
+    from blade_precompute.section_optimisation.api import BladeDesignProblem
+    from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
     from blade_precompute.section_properties.api import SectionAnalysis
 
     bg = bg_override if bg_override is not None else BladeDesignProblem.load_geometry(blade_yaml)
@@ -659,7 +659,7 @@ def _beam_model_impl(
     from blade_precompute.beam_model.core.types import BeamLoads, BoundaryCondition, SolverOptions
     from blade_precompute.beam_model.engine.blade_geometry import BladeGeometry
     from blade_precompute.beam_model.engine.interp import stations_from_arrays
-    from blade_precompute.design_optimisation.api import BladeDesignProblem
+    from blade_precompute.section_optimisation.api import BladeDesignProblem
 
     bg = bg_override if bg_override is not None else BladeDesignProblem.load_geometry(blade_yaml)
     geom = BladeGeometry(
@@ -887,7 +887,7 @@ def _beam_model_impl(
 
 
 # ---------------------------------------------------------------------------
-# Stage 4: design_optimisation
+# Stage 4: section_optimisation
 # ---------------------------------------------------------------------------
 
 
@@ -904,7 +904,7 @@ def _design_eval_payload(ev: Any, dv: Any) -> dict[str, Any]:  # DesignEvaluatio
     }
 
 
-def _design_optimisation_impl(
+def _section_optimisation_impl(
     inp: PrecomputeInputs,
     out_dir: Path,
     *,
@@ -915,13 +915,13 @@ def _design_optimisation_impl(
     optimizer_max_iter: int = 120,
     bg_override: Any | None = None,
     grid_meta: Mapping[str, Any] | None = None,
-) -> DesignOptimisationOutputs:
-    out_stage = (out_dir / "design_optimisation").resolve()
+) -> SectionOptimisationOutputs:
+    out_stage = (out_dir / "section_optimisation").resolve()
     out_stage.mkdir(parents=True, exist_ok=True)
 
-    from blade_precompute.design_optimisation import BladeOptimizer
-    from blade_precompute.design_optimisation.api import BladeDesignProblem
-    from blade_precompute.design_optimisation.core.types import DesignProblem, ExtremeLoads
+    from blade_precompute.section_optimisation import BladeOptimizer
+    from blade_precompute.section_optimisation.api import BladeDesignProblem
+    from blade_precompute.section_optimisation.core.types import DesignProblem, ExtremeLoads
 
     bg = bg_override if bg_override is not None else BladeDesignProblem.load_geometry(blade_yaml)
     # data_library extreme load tables are often written on a denser span grid than the YAML
@@ -989,7 +989,7 @@ def _design_optimisation_impl(
 
     png_paths: list[Path] = []
     try:
-        from blade_precompute.design_optimisation.interface import plot as dplot
+        from blade_precompute.section_optimisation.interface import plot as dplot
 
         import matplotlib.pyplot as plt
 
@@ -1011,7 +1011,7 @@ def _design_optimisation_impl(
             plt.close(fig)
             png_paths.append(p2)
             fig, _ = dplot.plot_optimisation_history(opt_res)
-            p3 = (out_stage / "design_optimisation_history.png").resolve()
+            p3 = (out_stage / "section_optimisation_history.png").resolve()
             fig.savefig(p3, dpi=170, bbox_inches="tight")
             plt.close(fig)
             png_paths.append(p3)
@@ -1019,7 +1019,7 @@ def _design_optimisation_impl(
         pass
 
     _write_json(out_stage / "summary.json", {"result_json": result_json, "png_paths": png_paths})
-    return DesignOptimisationOutputs(result_json=result_json, png_paths=png_paths)
+    return SectionOptimisationOutputs(result_json=result_json, png_paths=png_paths)
 
 
 # ---------------------------------------------------------------------------
@@ -1072,8 +1072,8 @@ def _section_buckling_impl(
     out_stage = (out_dir / "section_buckling").resolve()
     out_stage.mkdir(parents=True, exist_ok=True)
 
-    from blade_precompute.design_optimisation.api import BladeDesignProblem
-    from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
+    from blade_precompute.section_optimisation.api import BladeDesignProblem
+    from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
     from blade_precompute.section_buckling.gbt import SectionLoads
     from blade_precompute.section_buckling.interface.plots import plot_buckling_member_overview_grid
     from blade_precompute.section_buckling.interface.precompute import (
@@ -1312,13 +1312,13 @@ class BeamModelStage(_StageBase):
         return super().get_results()
 
 
-class DesignOptimisationStage(_StageBase):
-    def __init__(self, params: DesignOptimisationParams) -> None:
+class SectionOptimisationStage(_StageBase):
+    def __init__(self, params: SectionOptimisationParams) -> None:
         super().__init__()
         self.params = params
 
     def execute(self) -> None:
-        self._results = _design_optimisation_impl(
+        self._results = _section_optimisation_impl(
             self.params.inp,
             self.params.out_dir,
             blade_yaml=self.params.blade_yaml,
@@ -1330,7 +1330,7 @@ class DesignOptimisationStage(_StageBase):
             grid_meta=self.params.grid_meta,
         )
 
-    def get_results(self) -> DesignOptimisationOutputs:
+    def get_results(self) -> SectionOptimisationOutputs:
         return super().get_results()
 
 
@@ -1465,7 +1465,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     inp_geom = _resample_precompute_inputs(inp, _linspace_from_spec(gspec))
 
-    from blade_precompute.design_optimisation.api import BladeDesignProblem
+    from blade_precompute.section_optimisation.api import BladeDesignProblem
 
     bg_raw = BladeDesignProblem.load_geometry(args.yaml.resolve())
     z_struct_src = np.asarray(bg_raw.z_stations, dtype=np.float64).ravel()
@@ -1567,8 +1567,8 @@ def main(argv: list[str] | None = None) -> int:
     bm_stage.execute()
     bm = bm_stage.get_results()
 
-    do_stage = DesignOptimisationStage(
-        DesignOptimisationParams(
+    do_stage = SectionOptimisationStage(
+        SectionOptimisationParams(
             inp=inp_geom,
             out_dir=job,
             blade_yaml=args.yaml.resolve(),
@@ -1593,7 +1593,7 @@ def main(argv: list[str] | None = None) -> int:
             "section_properties": sp,
             "section_buckling": sb,
             "beam_model": bm,
-            "design_optimisation": do,
+            "section_optimisation": do,
         },
     )
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from blade_precompute.design_optimisation.core.types import DesignVector, OptimBladeGeometry
-from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
+from blade_precompute.section_optimisation.core.types import DesignVector, OptimBladeGeometry
+from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial, OrthotropicPly
 from blade_precompute.section_properties.engine.solver import MidsurfaceSectionSolver

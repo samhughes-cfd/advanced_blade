@@ -25,8 +25,8 @@ class BladeDesignProblem:
     """
     Cohesive sizing workflow: design problem + ``evaluate`` / ``build_sections``.
 
-    Uses :class:`~design_optimisation.core.protocols.PrescribedResultantDriver` internally
-    via :class:`~design_optimisation.engine.evaluator.DesignEvaluator`.
+    Uses :class:`~section_optimisation.core.protocols.PrescribedResultantDriver` internally
+    via :class:`~section_optimisation.engine.evaluator.DesignEvaluator`.
     """
 
     def __init__(self, problem: DesignProblem) -> None:
@@ -39,7 +39,7 @@ class BladeDesignProblem:
 
     @staticmethod
     def load_geometry(path: str | Path) -> OptimBladeGeometry:
-        """Load :class:`~design_optimisation.core.types.OptimBladeGeometry` from YAML."""
+        """Load :class:`~section_optimisation.core.types.OptimBladeGeometry` from YAML."""
         return load_blade_geometry(path)
 
     @staticmethod
@@ -51,7 +51,7 @@ class BladeDesignProblem:
     ) -> ExtremeLoads:
         """
         Load extreme distributed-load ``.dat``, integrate to internal resultants, and return
-        :class:`~design_optimisation.core.types.ExtremeLoads`.
+        :class:`~section_optimisation.core.types.ExtremeLoads`.
 
         When ``z_geometry`` is the problem blade ``z_stations``, load coordinates are validated.
         """

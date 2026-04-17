@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from blade_precompute.design_optimisation.core.types import DesignVector, OptimBladeGeometry
-from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
+from blade_precompute.section_optimisation.core.types import DesignVector, OptimBladeGeometry
+from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
 from blade_precompute.global_beam_model.core.types import BeamSolveResult
 from blade_precompute.global_beam_model.engine.constitutive import beam_resultants_to_section_recovery_order
 from blade_precompute.global_beam_model.engine.section_recovery import enrich_beam_result_with_section_stress

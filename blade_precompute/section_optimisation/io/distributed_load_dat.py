@@ -34,7 +34,7 @@ from blade_precompute.beam_model.engine.distributed_load_integrator import (
     DistributedLoadIntegrator,
     IntegratedResultants,
 )
-from blade_precompute.design_optimisation.core.types import ExtremeLoads
+from blade_precompute.section_optimisation.core.types import ExtremeLoads
 from blade_analysis.fatigue_damage.core.loads import ResultantHistory
 
 
@@ -196,7 +196,7 @@ def extreme_loads_from_distributed(
     q_z: NDArray[np.float64],
     m_x: NDArray[np.float64],
 ) -> ExtremeLoads:
-    """Integrate distributed loads → :class:`~design_optimisation.core.types.ExtremeLoads`."""
+    """Integrate distributed loads → :class:`~section_optimisation.core.types.ExtremeLoads`."""
     res = DistributedLoadIntegrator.integrate(z, q_y, q_z, m_x)
     return extreme_loads_from_integrated(res)
 

@@ -24,7 +24,7 @@ class BeamResultantDriverProtocol(Protocol):
 
 
 class PrescribedResultantDriver:
-    """Default implementation wrapping :func:`~design_optimisation.engine.beam_k7.solve`."""
+    """Default implementation wrapping :func:`~section_optimisation.engine.beam_k7.solve`."""
 
     __slots__ = ()
 

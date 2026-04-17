@@ -12,12 +12,12 @@ while _p.name != "blade_precompute" and _p.parent != _p:
 if _p.name == "blade_precompute":
     sys.path.insert(0, str(_p.parent))
 
-from blade_precompute.design_optimisation import BladeOptimizer
-from blade_precompute.design_optimisation.__main__ import _smoke_problem_builtin, _smoke_problem_from_yaml, _repo_root
+from blade_precompute.section_optimisation import BladeOptimizer
+from blade_precompute.section_optimisation.__main__ import _repo_root, _smoke_problem_builtin, _smoke_problem_from_yaml
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Run the design_optimisation smoke sizing case and save plots to PDF.")
+    p = argparse.ArgumentParser(description="Run the section_optimisation smoke sizing case and save plots to PDF.")
     p.add_argument(
         "--yaml",
         type=Path,
@@ -53,7 +53,7 @@ def main() -> None:
         opt = BladeOptimizer(sizing.problem, options={"maxiter": args.maxiter, "ftol": 1e-5, "disp": False})
         res = opt.run(dv0)
 
-    from blade_precompute.design_optimisation.interface import plot as dplot
+    from blade_precompute.section_optimisation.interface import plot as dplot
 
     z = np.asarray(sizing.problem.blade_geometry.z_stations, dtype=np.float64)
     figs = []

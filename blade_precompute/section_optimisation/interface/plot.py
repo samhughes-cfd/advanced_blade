@@ -1,6 +1,6 @@
 """
-design_optimisation.interface.plot
-====================================
+section_optimisation.interface.plot
+=====================================
 Thickness profiles and optimisation history from :class:`OptimisationResult`.
 """
 
@@ -22,7 +22,7 @@ def _plt():
     try:
         import matplotlib.pyplot as plt
     except ImportError as e:  # pragma: no cover
-        raise ImportError("design_optimisation plotting requires matplotlib.") from e
+        raise ImportError("section_optimisation plotting requires matplotlib.") from e
     return plt
 
 

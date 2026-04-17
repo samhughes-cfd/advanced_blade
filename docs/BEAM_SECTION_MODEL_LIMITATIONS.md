@@ -2,7 +2,7 @@
 
 ## Project framing
 
-The stack is organized in analysis tiers ([`beam_model/core/tier_paths.py`](../beam_model/core/tier_paths.py)): **Tier A** is the full Simo–Reissner + Vlasov warping beam solve; **Tier B** ([`design_optimisation/engine/beam_k7.py`](../design_optimisation/engine/beam_k7.py)) prescribes envelope resultants with a small-curvature nodal frame; **Tier C** ([`recovery_cache/engine/builder.py`](../recovery_cache/engine/builder.py)) uses fused **linear** stress operators. Limitations differ slightly by tier but share the same section-level assumptions.
+The stack is organized in analysis tiers ([`beam_model/core/tier_paths.py`](../beam_model/core/tier_paths.py)): **Tier A** is the full Simo–Reissner + Vlasov warping beam solve; **Tier B** ([`blade_precompute/section_optimisation/engine/beam_k7.py`](../blade_precompute/section_optimisation/engine/beam_k7.py)) prescribes envelope resultants with a small-curvature nodal frame; **Tier C** ([`recovery_cache/engine/builder.py`](../recovery_cache/engine/builder.py)) uses fused **linear** stress operators. Limitations differ slightly by tier but share the same section-level assumptions.
 
 ```mermaid
 flowchart LR
@@ -39,7 +39,7 @@ flowchart LR
 - **Reference CLI:** A built-in nonlinear static smoke case is exposed as `python -m beam_model` ([`beam_model/__main__.py`](../beam_model/__main__.py)); optional `--verbose`, `--print-spanwise`, and plotting flags match the former standalone script (now [`example_beam_static.py`](../example_beam_static.py), which delegates here).
 - **Static equilibrium only:** No explicit time domain, modes, or damping in `beam_model` (no dynamic/modal paths in this package).
 - **Arc-length:** `use_arc_length` exists but **full arc-length continuation is not implemented**; load stepping still applies when enabled ([`beam_model/engine/solver.py`](../beam_model/engine/solver.py) docstring).
-- **Tier B:** Internal forces are **prescribed**, not solved from equilibrium; `nodal_R` uses `rotmat_from_small_curvature` from `kappa0` ([`design_optimisation/engine/beam_k7.py`](../design_optimisation/engine/beam_k7.py))—inconsistent with Tier A’s large-rotation quaternions if used as a substitute for true nonlinear beam response.
+- **Tier B:** Internal forces are **prescribed**, not solved from equilibrium; `nodal_R` uses `rotmat_from_small_curvature` from `kappa0` ([`blade_precompute/section_optimisation/engine/beam_k7.py`](../blade_precompute/section_optimisation/engine/beam_k7.py))—inconsistent with Tier A’s large-rotation quaternions if used as a substitute for true nonlinear beam response.
 
 ---
 

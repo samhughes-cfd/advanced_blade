@@ -1,4 +1,4 @@
-"""Load :class:`~design_optimisation.core.types.OptimBladeGeometry` from YAML."""
+"""Load :class:`~section_optimisation.core.types.OptimBladeGeometry` from YAML."""
 
 from __future__ import annotations
 

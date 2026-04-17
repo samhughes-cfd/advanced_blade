@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from blade_precompute.design_optimisation.engine.section_builder import SectionBuilder
-from blade_precompute.design_optimisation.core.types import DesignVector, OptimBladeGeometry
+from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
+from blade_precompute.section_optimisation.core.types import DesignVector, OptimBladeGeometry
 from blade_analysis.fatigue_damage.core.loads import ResultantHistory
 from blade_analysis.fatigue_damage.engine.conversion import resultants_to_stress_history
 from blade_utilities.recovery import RecoveryCache, build_recovery_cache

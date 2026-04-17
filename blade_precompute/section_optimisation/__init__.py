@@ -1,6 +1,6 @@
 """Blade structural sizing optimisation (midsurface strip ``K7`` pipeline).
 
-Run: ``python -m blade_precompute.design_optimisation``
+Run: ``python -m blade_precompute.section_optimisation``
 """
 
 from .api import BladeDesignProblem
