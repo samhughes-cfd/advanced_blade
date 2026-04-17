@@ -13,7 +13,11 @@ from blade_precompute.section_beam_model.gbt import (
     select_modes,
 )
 from blade_precompute.section_beam_model.gbt.prebuckling import PreBucklingAnalysis
-from blade_precompute.section_beam_model.gbt.section_stiffness_export import gbt_to_beam_stiffness
+from blade_precompute.section_beam_model.gbt.section_stiffness_export import (
+    gbt_to_beam_stiffness,
+    gbt_to_k7,
+    section_stiffness_to_k6,
+)
 
 MAT = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
 
@@ -93,3 +97,39 @@ def test_gbt_to_beam_stiffness_isotropic():
     assert st.EA == pytest.approx(ref["EA"], rel=1e-9, abs=1.0)
     assert st.EI_x > 0.0 and st.EI_y > 0.0 and st.GJ > 0.0
     assert st.GA_x > 0.0 and st.GA_y > 0.0
+
+
+def test_eiyz_symmetric_box_small():
+    sec = make_box_section()
+    loads = SectionLoads(N=-1.0)
+    full = CrossSectionModalAnalysis(sec, loads).run(n_modes=28)
+    sel = select_modes(full, mode_labels=list(DEFAULT_BEAM_EXPORT_MODE_LABELS))
+    st = gbt_to_beam_stiffness(full, sel, section=sec)
+    ei_ref = max(st.EI_x, st.EI_y)
+    assert abs(st.EIyz) < 1e-6 * ei_ref
+
+
+def test_gbt_to_k7_symmetric_box_psd():
+    sec = make_box_section()
+    loads = SectionLoads(N=-1.0)
+    full = CrossSectionModalAnalysis(sec, loads).run(n_modes=28)
+    sel = select_modes(full, mode_labels=list(DEFAULT_BEAM_EXPORT_MODE_LABELS))
+    st = gbt_to_beam_stiffness(full, sel, section=sec)
+    K6 = section_stiffness_to_k6(st)
+    K7 = gbt_to_k7(full, K6)
+    assert K7.shape == (7, 7)
+    assert np.allclose(K7, K7.T)
+    assert K7[6, 6] > 0.0
+    w = np.linalg.eigvalsh(0.5 * (K7 + K7.T))
+    assert float(w.min()) >= -1e-6 * max(float(np.max(np.diag(K7))), 1.0)
+
+
+def test_gbt_to_k7_c_section_torsion_warping_coupling():
+    sec = make_c_section()
+    loads = SectionLoads(N=-1.0)
+    full = CrossSectionModalAnalysis(sec, loads).run(n_modes=40)
+    sel = select_modes(full, mode_labels=list(DEFAULT_BEAM_EXPORT_MODE_LABELS))
+    st = gbt_to_beam_stiffness(full, sel, section=sec)
+    K6 = section_stiffness_to_k6(st)
+    K7 = gbt_to_k7(full, K6)
+    assert abs(float(K7[3, 6])) > 0.0

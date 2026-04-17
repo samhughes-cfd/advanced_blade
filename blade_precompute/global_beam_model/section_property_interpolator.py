@@ -29,6 +29,7 @@ def section_stiffness_array_from_sequence(
         GJ=np.array([x.GJ for x in items], dtype=np.float64),
         GA_x=np.array([x.GA_x for x in items], dtype=np.float64),
         GA_y=np.array([x.GA_y for x in items], dtype=np.float64),
+        EIyz=np.array([x.EIyz for x in items], dtype=np.float64),
     )
 
 
@@ -51,7 +52,7 @@ class SectionPropertyInterpolator:
         self._s = st
         self._array = stiffness_array
         self._interp: dict[str, PchipInterpolator] = {}
-        for name in ("EA", "EI_x", "EI_y", "GJ", "GA_x", "GA_y"):
+        for name in ("EA", "EI_x", "EI_y", "GJ", "GA_x", "GA_y", "EIyz"):
             y = np.asarray(getattr(stiffness_array, name), dtype=np.float64).ravel()
             self._interp[name] = PchipInterpolator(st, y, extrapolate=False)
 

@@ -179,6 +179,11 @@ def _classical_export_indices(result: "ModalResult", section: CrossSection) -> d
     }
 
 
+def classical_export_indices(result: "ModalResult", section: CrossSection) -> dict[str, int]:
+    """Indices of axial / bending_x / bending_y / torsion modes in ``result.modes`` columns."""
+    return _classical_export_indices(result, section)
+
+
 def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int) -> str:
     """
     Export label: four classical indices from :func:`_classical_export_indices`,

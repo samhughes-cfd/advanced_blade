@@ -22,9 +22,32 @@ from blade_precompute.section_beam_model.gbt import (
 from blade_precompute.section_beam_model.gbt.section_stiffness_export import (
     SectionStiffness,
     gbt_to_beam_stiffness,
+    gbt_to_k7,
+    section_stiffness_to_k6,
     section_stiffness_to_station,
 )
 from blade_precompute.section_buckling.interface.precompute import section_definition_to_gbt_cross_section
+
+
+def _interp_k7_at_z(
+    z: float,
+    z_src: NDArray[np.float64],
+    mats: list[NDArray[np.float64]],
+) -> NDArray[np.float64]:
+    """Piecewise-linear ``(7, 7)`` stiffness between structural stations."""
+    zs = np.asarray(z_src, dtype=np.float64).ravel()
+    if zs.size == 0:
+        raise ValueError("z_src must be non-empty.")
+    if z <= float(zs[0]):
+        return np.asarray(mats[0], dtype=np.float64).copy()
+    if z >= float(zs[-1]):
+        return np.asarray(mats[-1], dtype=np.float64).copy()
+    j = int(np.searchsorted(zs, z, side="right"))
+    z0, z1 = float(zs[j - 1]), float(zs[j])
+    a = (z - z0) / (z1 - z0)
+    return ((1.0 - a) * np.asarray(mats[j - 1], dtype=np.float64) + a * np.asarray(mats[j], dtype=np.float64)).astype(
+        np.float64, copy=False
+    )
 
 
 def beam_section_stations_from_gbt(
@@ -43,6 +66,7 @@ def beam_section_stations_from_gbt(
         raise ValueError("section_definitions count must match station_z length.")
 
     stiff_list: list[SectionStiffness] = []
+    k7_src: list[NDArray[np.float64]] = []
     reports: list[str] = []
     n_cross = max(24, 4 * int(n_beam_nodes))
     for sd in section_definitions:
@@ -51,7 +75,10 @@ def beam_section_stations_from_gbt(
         full = CrossSectionModalAnalysis(cs, loads).run(n_modes=n_cross)
         sel = select_modes(full, mode_labels=list(DEFAULT_BEAM_EXPORT_MODE_LABELS))
         reports.append(truncation_report(full, sel))
-        stiff_list.append(gbt_to_beam_stiffness(full, sel, section=cs))
+        st = gbt_to_beam_stiffness(full, sel, section=cs)
+        stiff_list.append(st)
+        k6_i = section_stiffness_to_k6(st, EIyz=st.EIyz)
+        k7_src.append(gbt_to_k7(full, k6_i))
 
     arr = section_stiffness_array_from_sequence(z_src, stiff_list)
     zs = np.asarray(bg.z_stations, dtype=np.float64).ravel()
@@ -68,6 +95,8 @@ def beam_section_stations_from_gbt(
             GJ=float(arr_n.GJ[i]),
             GA_x=float(arr_n.GA_x[i]),
             GA_y=float(arr_n.GA_y[i]),
+            EIyz=float(arr_n.EIyz[i]),
         )
-        stations.append(section_stiffness_to_station(float(arr_n.s[i]), st))
+        k7_i = _interp_k7_at_z(float(arr_n.s[i]), z_src, k7_src)
+        stations.append(section_stiffness_to_station(float(arr_n.s[i]), st, K7=k7_i))
     return stations, reports

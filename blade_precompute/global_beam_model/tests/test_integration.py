@@ -51,6 +51,15 @@ def test_section_to_global_pipeline(example_blade_yaml: Path) -> None:
 
     stations, _reports = beam_section_stations_from_gbt(z, tuple(section_defs), bg, n_beam_nodes=12)
 
+    assert all(s.K7 is not None for s in stations)
+    assert all(s.K7.shape == (7, 7) for s in stations if s.K7 is not None)
+    assert all(float(s.K7[6, 6]) > 0.0 for s in stations if s.K7 is not None)
+    for s in stations:
+        assert s.K7 is not None
+        K7 = np.asarray(s.K7, dtype=np.float64)
+        emin = float(np.linalg.eigvalsh(0.5 * (K7 + K7.T)).min())
+        assert emin >= -1e-2 * max(float(np.max(np.diag(K7))), 1.0)
+
     geom = BladeGeometry(
         z_stations=np.asarray(bg.z_stations, dtype=np.float64),
         r_ref=np.asarray(bg.r_ref, dtype=np.float64),

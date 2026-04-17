@@ -13,12 +13,14 @@ from .modal import (
     CrossSectionModalAnalysis,
     DEFAULT_BEAM_EXPORT_MODE_LABELS,
     ModalResult,
+    classical_export_indices,
     select_modes,
     truncation_report,
 )
 from .section_stiffness_export import (
     SectionStiffness,
     gbt_to_beam_stiffness,
+    gbt_to_k7,
     section_stiffness_to_k6,
     section_stiffness_to_station,
 )
@@ -35,8 +37,10 @@ __all__ = [
     "DEFAULT_BEAM_EXPORT_MODE_LABELS",
     "select_modes",
     "truncation_report",
+    "classical_export_indices",
     "SectionStiffness",
     "gbt_to_beam_stiffness",
+    "gbt_to_k7",
     "section_stiffness_to_k6",
     "section_stiffness_to_station",
     "BoundaryConditions", "EndCondition",

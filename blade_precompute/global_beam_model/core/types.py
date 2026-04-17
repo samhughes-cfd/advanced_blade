@@ -88,11 +88,12 @@ class SectionStiffnessArray:
     GJ: NDArray[np.float64]
     GA_x: NDArray[np.float64]
     GA_y: NDArray[np.float64]
+    EIyz: NDArray[np.float64]
 
     def __post_init__(self) -> None:
         s = np.asarray(self.s, dtype=np.float64).ravel()
         n = s.size
-        for name in ("EA", "EI_x", "EI_y", "GJ", "GA_x", "GA_y"):
+        for name in ("EA", "EI_x", "EI_y", "GJ", "GA_x", "GA_y", "EIyz"):
             a = np.asarray(getattr(self, name), dtype=np.float64).ravel()
             if a.shape[0] != n:
                 raise ValueError(f"SectionStiffnessArray.{name} length {a.shape[0]} != len(s)={n}.")
