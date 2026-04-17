@@ -5,7 +5,7 @@ The extreme-load envelope is taken as **prescribed internal resultants** at
 tabulated stations (common for ultimate blade checks). The optional seventh
 component is the bimoment ``B`` (defaults to zero unless ``ExtremeLoads.B`` is
 set). ``nodal_R`` applies a level-1 rigid rotation from ``kappa0`` at each station
-via :func:`beam_model.engine.kinematics.rotmat_from_small_curvature`.
+via :func:`global_beam_model.engine.kinematics.rotmat_from_small_curvature`.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from blade_precompute.beam_model.engine.kinematics import rotmat_from_small_curvature
+from blade_precompute.global_beam_model.engine.kinematics import rotmat_from_small_curvature
 
 from ..core.types import ExtremeLoads, OptimBladeGeometry
 

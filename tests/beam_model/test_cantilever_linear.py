@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
-import beam_model as bm
-from beam_model.engine.constitutive import resultants_to_recovery6
-from beam_model.engine.interp import stations_from_arrays
+import blade_precompute.global_beam_model as bm
+from blade_precompute.global_beam_model.engine.constitutive import resultants_to_recovery6
+from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 
 
 def euler_tip(F: float, L: float, EI: float) -> float:

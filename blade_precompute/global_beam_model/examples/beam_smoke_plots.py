@@ -12,12 +12,12 @@ while _p.name != "blade_precompute" and _p.parent != _p:
 if _p.name == "blade_precompute":
     sys.path.insert(0, str(_p.parent))
 
-import blade_precompute.beam_model as bm
-from blade_precompute.beam_model.__main__ import _smoke_model
+import blade_precompute.global_beam_model as bm
+from blade_precompute.global_beam_model.__main__ import _smoke_model
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Run the beam_model smoke case and save plots to PDF.")
+    p = argparse.ArgumentParser(description="Run the global_beam_model smoke case and save plots to PDF.")
     p.add_argument(
         "--out",
         type=Path,
@@ -51,7 +51,7 @@ def main() -> None:
     )
     res = bm.BeamAnalysis(model).solve_static(loads, options=opts)
 
-    from blade_precompute.beam_model.interface import plot as bmplot
+    from blade_precompute.global_beam_model.interface import plot as bmplot
 
     figs = []
     for fn in [

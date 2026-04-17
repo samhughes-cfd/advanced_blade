@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from beam_model.engine.kinematics import exp_quat, exp_so3, quat_normalize, quat_to_rotmat, update_orientation
+from blade_precompute.global_beam_model.engine.kinematics import (
+    exp_quat,
+    exp_so3,
+    quat_normalize,
+    quat_to_rotmat,
+    update_orientation,
+)
 
 
 def test_exp_so3_orthogonality() -> None:

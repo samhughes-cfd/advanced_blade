@@ -22,7 +22,7 @@ class BeamAnalysis:
         *,
         span_axis: int = 2,
     ) -> BeamAnalysis:
-        """Build from :class:`~beam_model.engine.blade_geometry.BladeGeometry` (see :mod:`beam_model.core.tier_paths`)."""
+        """Build from :class:`~global_beam_model.engine.blade_geometry.BladeGeometry` (see :mod:`global_beam_model.core.tier_paths`)."""
         m = beam_model_from_blade_geometry(
             geometry, n_nodes, section_stations, span_axis=span_axis
         )
@@ -34,6 +34,6 @@ class BeamAnalysis:
         *,
         options: SolverOptions | None = None,
     ) -> BeamSolveResult:
-        """Delegate to :func:`~beam_model.engine.solver.solve_static`."""
+        """Delegate to :func:`~global_beam_model.engine.solver.solve_static`."""
         opt = options if options is not None else SolverOptions()
         return solve_static(self.model, loads, options=opt)

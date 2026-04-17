@@ -1,9 +1,9 @@
 """
-beam_model.interface.plot
-=========================
+global_beam_model.interface.plot
+==================================
 Matplotlib helpers for static solve review (optional dependency: matplotlib).
 
-All functions import pyplot lazily so ``import beam_model`` stays lightweight.
+All functions import pyplot lazily so importing this package stays lightweight without matplotlib.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def _require_pyplot():
     try:
         import matplotlib.pyplot as plt
     except ImportError as e:  # pragma: no cover
-        raise ImportError("beam_model plotting requires matplotlib.") from e
+        raise ImportError("global_beam_model plotting requires matplotlib.") from e
     return plt
 
 

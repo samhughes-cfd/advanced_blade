@@ -655,10 +655,10 @@ def _beam_model_impl(
     out_stage = (out_dir / "beam_model").resolve()
     out_stage.mkdir(parents=True, exist_ok=True)
 
-    from blade_precompute.beam_model.api import BeamAnalysis
-    from blade_precompute.beam_model.core.types import BeamLoads, BoundaryCondition, SolverOptions
-    from blade_precompute.beam_model.engine.blade_geometry import BladeGeometry
-    from blade_precompute.beam_model.engine.interp import stations_from_arrays
+    from blade_precompute.global_beam_model.api import BeamAnalysis
+    from blade_precompute.global_beam_model.core.types import BeamLoads, BoundaryCondition, SolverOptions
+    from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
+    from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
     from blade_precompute.section_optimisation.api import BladeDesignProblem
 
     bg = bg_override if bg_override is not None else BladeDesignProblem.load_geometry(blade_yaml)
@@ -828,7 +828,7 @@ def _beam_model_impl(
 
     png_paths: list[Path] = []
     try:
-        from blade_precompute.beam_model.interface import plot as bmplot
+        from blade_precompute.global_beam_model.interface import plot as bmplot
 
         import matplotlib.pyplot as plt
 

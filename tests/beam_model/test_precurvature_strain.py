@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-import beam_model as bm
-from beam_model.engine.element import e7_vector
-from beam_model.engine.interp import stations_from_arrays
-from beam_model.engine.solver import _initialize_nodes
+import blade_precompute.global_beam_model as bm
+from blade_precompute.global_beam_model.engine.element import e7_vector
+from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
+from blade_precompute.global_beam_model.engine.solver import _initialize_nodes
 
 
 def test_zero_mechanical_strain_with_kappa0_match() -> None:

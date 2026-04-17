@@ -1,23 +1,19 @@
 """
-beam_model
-==========
+global_beam_model
+=================
 Geometrically exact 3D Simo–Reissner beam with Vlasov warping (7 DOFs per node),
 linear ``K7`` section law, and optional precurvature from :class:`BladeGeometry`.
 
 **Level 2 (out of scope):** section shape distortion under large torsion (>~15°).
 
-Strain six-vector follows ``section_model`` / ``SectionProps``. Global resultants
-are ``[N, Vy, Vz, My, Mz, T, B]``; use :func:`beam_model.engine.constitutive.resultants_to_recovery6`
-for :class:`section_model.core.types.SectionProps`-compatible recovery ordering.
-
 Strain six-vector follows :class:`blade_precompute.section_properties.core.types.SectionProps`.
 Global resultants are ``[N, Vy, Vz, My, Mz, T, B]``; use
-:func:`blade_precompute.beam_model.engine.constitutive.resultants_to_recovery6` for the compatible
+:func:`blade_precompute.global_beam_model.engine.constitutive.resultants_to_recovery6` for the compatible
 recovery ordering.
 
-Run: ``python -m blade_precompute.beam_model``. Options include ``--verbose``,
+Run: ``python -m blade_precompute.global_beam_model``. Options include ``--verbose``,
 ``--print-spanwise``, ``--plot``, ``--plot-out path.pdf`` (see
-:mod:`blade_precompute.beam_model.interface.plot`).
+:mod:`blade_precompute.global_beam_model.interface.plot`).
 """
 
 from __future__ import annotations

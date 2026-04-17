@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from blade_precompute.beam_model.engine.kinematics import rotmat_from_small_curvature
+from blade_precompute.global_beam_model.engine.kinematics import rotmat_from_small_curvature
 from blade_precompute.section_optimisation.core.types import DesignVector, OptimBladeGeometry
 from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition

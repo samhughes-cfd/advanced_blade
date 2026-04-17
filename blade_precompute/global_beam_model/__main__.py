@@ -1,4 +1,4 @@
-"""CLI: minimal nonlinear static beam solve → :class:`~beam_model.core.types.BeamSolveResult`."""
+"""CLI: minimal nonlinear static beam solve → :class:`~global_beam_model.core.types.BeamSolveResult`."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from pathlib import Path
 
 import numpy as np
 
-import blade_precompute.beam_model as bm
-from blade_precompute.beam_model.engine.blade_geometry import BladeGeometry
-from blade_precompute.beam_model.engine.interp import stations_from_arrays
-from blade_precompute.beam_model.engine.postprocess import sample_resultants_at_z
+import blade_precompute.global_beam_model as bm
+from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
+from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
+from blade_precompute.global_beam_model.engine.postprocess import sample_resultants_at_z
 
 
 def _tapered_K7(z_nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -154,7 +154,7 @@ def main() -> None:
     _summarise(res, model, print_spanwise=bool(args.print_spanwise))
 
     if args.plot or args.plot_out is not None:
-        from blade_precompute.beam_model.interface import plot as bmplot
+        from blade_precompute.global_beam_model.interface import plot as bmplot
 
         figs = []
         fig, _ = bmplot.plot_centerline_ref_def(model, res)

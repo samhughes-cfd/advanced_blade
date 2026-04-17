@@ -40,7 +40,7 @@ def rotmat_from_small_curvature(kappa: NDArray[np.float64]) -> NDArray[np.float6
     Rotation matrix ``R ≈ I + [κ]×`` with SVD re-orthogonalisation.
 
     Used for **Tier B** prescribed-resultant workflows (small reference-curvature
-    correction to the nodal triad). See :mod:`beam_model.core.tier_paths`.
+    correction to the nodal triad). See :mod:`global_beam_model.core.tier_paths`.
     """
     k = np.asarray(kappa, dtype=np.float64).ravel()
     if k.size != 3:

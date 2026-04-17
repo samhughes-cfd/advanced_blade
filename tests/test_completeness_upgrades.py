@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-import blade_precompute.beam_model as bm
+import blade_precompute.global_beam_model as bm
 import blade_precompute.section_properties as sm
-from blade_precompute.beam_model.engine.interp import interp_K7, stations_from_arrays
+from blade_precompute.global_beam_model.engine.interp import interp_K7, stations_from_arrays
 from blade_precompute.section_optimisation.core.verification import ReferenceStation, compute_station_metrics
 from blade_precompute.section_optimisation.engine import beam_k7
 from blade_analysis.fatigue_damage.core.loads import ResultantHistory

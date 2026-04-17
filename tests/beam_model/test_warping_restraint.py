@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-import beam_model as bm
-from beam_model.engine.interp import stations_from_arrays
+import blade_precompute.global_beam_model as bm
+from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 
 
 def test_warping_root_fixed_under_torque() -> None:

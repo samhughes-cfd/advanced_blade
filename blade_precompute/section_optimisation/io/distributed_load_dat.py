@@ -30,7 +30,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from blade_precompute.beam_model.engine.distributed_load_integrator import (
+from blade_precompute.global_beam_model.engine.distributed_load_integrator import (
     DistributedLoadIntegrator,
     IntegratedResultants,
 )

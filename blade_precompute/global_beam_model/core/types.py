@@ -1,6 +1,6 @@
 """
-beam_model/types.py
-===================
+global_beam_model/core/types.py
+================================
 Geometry, spanwise section data (``K6`` / ``K7``), loads, solver I/O.
 
 **Level 2 (out of scope):** section shape distortion under large torsion
@@ -14,7 +14,7 @@ Beam **resultants** (seven-vector) use::
 
     [N, Vy, Vz, My, Mz, T, B]
 
-Use :func:`beam_model.engine.constitutive.resultants_to_recovery6` to map the first six
+Use :func:`global_beam_model.engine.constitutive.resultants_to_recovery6` to map the first six
 entries to ``section_model`` order ``[N, My, Mz, T, Vy, Vz]`` for downstream section
 recovery tooling.
 """

@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from beam_model.engine.distributed_load_integrator import DistributedLoadIntegrator
+from blade_precompute.global_beam_model.engine.distributed_load_integrator import DistributedLoadIntegrator
 from blade_precompute.section_optimisation.io.distributed_load_dat import (
     extreme_loads_from_distributed,
     load_extreme_distributed_loads_dat,
