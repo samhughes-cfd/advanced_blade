@@ -1,0 +1,10 @@
+.cursor/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+outputs/
+_artifacts/
+*.egg-info/
+.venv/
+venv/
+.DS_Store

@@ -1,0 +1,11 @@
+# Optional dependencies for `blade_precompute`.
+#
+# Install:
+#   pip install -r requirements.txt -r requirements-optional.txt
+
+# Improves medial axis quality for repeated CSG offsets (section_geometry).
+scikit-fmm>=2023.4
+
+# Enables dataframe export in `section_geometry.interface.export`.
+pandas>=2.0
+

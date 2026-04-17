@@ -1,0 +1,14 @@
+# implicit_section_geometry — required dependencies
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+scikit-image>=0.21     # morphological thinning (skeletonize)
+
+# Optional but strongly recommended
+scikit-fmm>=2023.4     # Eikonal redistancing for improved medial axis quality
+
+# Optional — for to_dataframe() export
+# pandas>=2.0
+
+# Testing
+pytest>=7.0
