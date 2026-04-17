@@ -1,16 +1,18 @@
 """Unit tests for member.py buckling analysis."""
-from pathlib import Path
-import sys
-
-_root = Path(__file__).resolve().parents[1]
-if str(_root) not in sys.path:
-    sys.path.insert(0, str(_root))
 
 import numpy as np
 import pytest
-from gbt import (IsotropicMaterial, WallDefinition, CrossSection,
-                 SectionLoads, CrossSectionModalAnalysis,
-                 BoundaryConditions, MemberBucklingAnalysis, KirchhoffKinematics)
+
+from blade_precompute.section_beam_model.gbt import (
+    BoundaryConditions,
+    CrossSection,
+    CrossSectionModalAnalysis,
+    IsotropicMaterial,
+    KirchhoffKinematics,
+    MemberBucklingAnalysis,
+    SectionLoads,
+    WallDefinition,
+)
 
 MAT = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
 

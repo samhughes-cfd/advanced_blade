@@ -1,8 +1,9 @@
 """Unit tests for section.py shared-node assembly."""
-import sys; sys.path.insert(0, '/home/user/output/gbt_module')
+
 import numpy as np
 import pytest
-from gbt import IsotropicMaterial, WallDefinition, CrossSection
+
+from blade_precompute.section_beam_model.gbt import CrossSection, IsotropicMaterial, WallDefinition
 
 MAT = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
 

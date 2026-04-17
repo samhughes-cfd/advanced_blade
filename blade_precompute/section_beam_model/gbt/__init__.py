@@ -1,5 +1,8 @@
 """
-gbt — Generalised Beam Theory module for mixed-material blade sections.
+GBT — Generalised Beam Theory for mixed-material blade sections.
+
+Part of :mod:`blade_precompute.section_beam_model` (cross-section / member-axis
+stability), not spanwise :mod:`blade_precompute.global_beam_model`.
 """
 
 from .materials   import IsotropicMaterial, LaminateMaterial, Lamina

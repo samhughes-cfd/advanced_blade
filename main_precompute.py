@@ -1074,7 +1074,7 @@ def _section_buckling_impl(
 
     from blade_precompute.section_optimisation.api import BladeDesignProblem
     from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
-    from blade_precompute.section_buckling.gbt import SectionLoads
+    from blade_precompute.section_beam_model.gbt import SectionLoads
     from blade_precompute.section_buckling.interface.plots import plot_buckling_member_overview_grid
     from blade_precompute.section_buckling.interface.precompute import (
         analyze_station_buckling,

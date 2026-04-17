@@ -13,7 +13,7 @@ from blade_precompute.section_properties.engine.laminate import LaminateDefiniti
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial as SPIsotropic
 from blade_precompute.section_properties.engine.mesh import build_line_mesh
 
-from blade_precompute.section_buckling.gbt import (
+from blade_precompute.section_beam_model.gbt import (
     BoundaryConditions,
     CrossSection,
     CrossSectionModalAnalysis,

@@ -12,12 +12,17 @@ lambda_cr (GBT)   ~ sigma_cr * A / N_ref   (N_ref = -1 N applied)
 Note: GBT lambda_cr converges to the Euler solution for the dominant
 global bending mode as n_modes -> 1 (global only) and n_elem -> inf.
 """
-import sys; sys.path.insert(0, '/home/user/output/gbt_module')
 import numpy as np
-from gbt import (
-    IsotropicMaterial, WallDefinition, CrossSection, SectionLoads,
-    CrossSectionModalAnalysis, BoundaryConditions, MemberBucklingAnalysis,
+
+from blade_precompute.section_beam_model.gbt import (
+    BoundaryConditions,
+    CrossSection,
+    CrossSectionModalAnalysis,
+    IsotropicMaterial,
     KirchhoffKinematics,
+    MemberBucklingAnalysis,
+    SectionLoads,
+    WallDefinition,
 )
 
 def run():

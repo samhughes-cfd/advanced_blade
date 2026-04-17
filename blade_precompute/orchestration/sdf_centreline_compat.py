@@ -1,6 +1,6 @@
 """Compatibility notes for member / medial pipelines that consume grid-sampled ``phi``.
 
-:class:`~blade_precompute.section_buckling.gbt.member.MemberModel` (GBT) operates on
+:class:`~blade_precompute.section_beam_model.gbt.member.MemberBucklingAnalysis` (GBT) operates on
 modal strips and pre-buckling stresses — it does **not** import ``AirfoilSDF`` directly.
 Section-scale SDFs still feed **centreline / medial** extraction in
 ``section_geometry`` via :meth:`SDFGrid.grad_magnitude` and friends; composite sections

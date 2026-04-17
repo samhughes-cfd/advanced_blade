@@ -1,8 +1,9 @@
 """Unit tests for materials.py."""
-import sys; sys.path.insert(0, '/home/user/output/gbt_module')
+
 import numpy as np
 import pytest
-from gbt import IsotropicMaterial, LaminateMaterial, Lamina
+
+from blade_precompute.section_beam_model.gbt import IsotropicMaterial, Lamina, LaminateMaterial
 
 def test_isotropic_abd_shape():
     mat = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)

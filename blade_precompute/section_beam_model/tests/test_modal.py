@@ -1,9 +1,15 @@
 """Unit tests for the cross-section modal analysis pipeline."""
-import sys; sys.path.insert(0, '/home/user/output/gbt_module')
+
 import numpy as np
 import pytest
-from gbt import (IsotropicMaterial, WallDefinition, CrossSection,
-                 SectionLoads, CrossSectionModalAnalysis, KirchhoffKinematics)
+
+from blade_precompute.section_beam_model.gbt import (
+    CrossSection,
+    CrossSectionModalAnalysis,
+    IsotropicMaterial,
+    SectionLoads,
+    WallDefinition,
+)
 
 MAT = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
 

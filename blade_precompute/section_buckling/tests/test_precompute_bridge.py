@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from blade_precompute.section_buckling.gbt import CrossSectionModalAnalysis, SectionLoads
+from blade_precompute.section_beam_model.gbt import CrossSectionModalAnalysis, SectionLoads
 from blade_precompute.section_buckling.interface.plots import (
     plot_buckling_member_overview_grid,
     plot_cross_section_mode_wireframes,
