@@ -4,6 +4,13 @@ from dataclasses import dataclass
 import numpy as np
 from .section import CrossSection
 
+# Numerical floors
+_DET_FLOOR: float = 1e-30
+"""Singularity guard for the bending rigidity determinant EIyy·EIzz − EIyz²."""
+_MIN_ENCLOSED_AREA_M2: float = 1e-12
+"""Minimum enclosed cross-section area [m²] (1 mm²) for Bredt closed-section torsion."""
+
+
 @dataclass
 class SectionLoads:
     N:float=0.0; My:float=0.0; Mz:float=0.0
@@ -34,7 +41,7 @@ class PreBucklingAnalysis:
         EIyz=p["EIyz"]; yc=p["yc"]; zc=p["zc"]
         N,My,Mz=self.loads.N,self.loads.My,self.loads.Mz
         det=EIyy*EIzz-EIyz**2
-        if abs(det)<1e-30: det=max(EIyy*EIzz,1e-30)
+        if abs(det)<_DET_FLOOR: det=max(EIyy*EIzz,_DET_FLOOR)
         ky=( EIzz*My-EIyz*Mz)/det; kz=(-EIyz*My+EIyy*Mz)/det
         Nx=np.zeros(self.section.n_strips)
         for i in range(self.section.n_strips):
@@ -57,7 +64,7 @@ class PreBucklingAnalysis:
                 q[i]=-(cy*Sy+cz*Sz)
         if abs(self.loads.T)>0:
             Aenc=self.section.enclosed_area()
-            if Aenc>1e-12: q+=self.loads.T/(2.0*Aenc)
+            if Aenc>_MIN_ENCLOSED_AREA_M2: q+=self.loads.T/(2.0*Aenc)
         return q
     def strip_stress_resultants(self):
         Nx=self.axial_stress_resultants(); q=self.shear_flow()

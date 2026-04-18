@@ -24,6 +24,14 @@ from .modal import ModalResult, classical_export_indices
 from .prebuckling import SectionLoads
 from .section import CrossSection
 
+# Numerical floors and tolerances
+_STIFFNESS_FLOOR: float = 1e-12
+"""Minimum positive diagonal stiffness entry [SI units] to prevent singular K."""
+_WARPING_FLOOR_FACTOR: float = 1e-6
+"""Lower bound on K7[6,6] — applied relative to the GJ scale of the section."""
+_COUPLING_TIE_RTOL: float = 1e-9
+"""Relative tolerance for the torsion–warping coupling tie-break in gbt_to_k7."""
+
 
 @dataclass(frozen=True)
 class SectionStiffness:
@@ -181,13 +189,13 @@ def gbt_to_k7(
             lam_k = float(result.eigenvalues[k])
             if best_k is None:
                 best_k, best_c = k, c_abs
-            elif c_abs > best_c + 1e-9 * max(best_c, 1.0):
+            elif c_abs > best_c + _COUPLING_TIE_RTOL * max(best_c, 1.0):
                 best_k, best_c = k, c_abs
-            elif abs(c_abs - best_c) <= 1e-9 * max(best_c, 1.0) and best_k is not None:
+            elif abs(c_abs - best_c) <= _COUPLING_TIE_RTOL * max(best_c, 1.0) and best_k is not None:
                 if lam_k < float(result.eigenvalues[best_k]):
                     best_k = k
         if best_k is None:
-            g = float(max(K6[3, 3], 1e-6))
+            g = float(max(K6[3, 3], _WARPING_FLOOR_FACTOR))
             K7[6, 6] = g
             return 0.5 * (K7 + K7.T)
 
@@ -205,7 +213,7 @@ def gbt_to_k7(
     else:
         c_tw = float(result.modal_coupling(k_t, k_w))
         K7[3, 6] = K7[6, 3] = c_tw
-    K7[6, 6] = float(max(k_ww, max(K6[3, 3], 1e-6), 1e-12))
+    K7[6, 6] = float(max(k_ww, max(K6[3, 3], _WARPING_FLOOR_FACTOR), _STIFFNESS_FLOOR))
     return 0.5 * (K7 + K7.T)
 
 
@@ -229,9 +237,9 @@ def section_stiffness_to_k6(
     K6[1, 1] = st.EI_x
     K6[2, 2] = st.EI_y
     K6[1, 2] = K6[2, 1] = -eyz
-    K6[3, 3] = max(st.GJ, 1e-12)
-    K6[4, 4] = alpha * max(st.GA_x, 1e-12)
-    K6[5, 5] = alpha * max(st.GA_y, 1e-12)
+    K6[3, 3] = max(st.GJ, _STIFFNESS_FLOOR)
+    K6[4, 4] = alpha * max(st.GA_x, _STIFFNESS_FLOOR)
+    K6[5, 5] = alpha * max(st.GA_y, _STIFFNESS_FLOOR)
     return K6
 
 

@@ -12,6 +12,22 @@ from .section import CrossSection
 from .kinematics import KinematicModel, KirchhoffKinematics
 from .prebuckling import PreBucklingAnalysis, SectionLoads
 
+# Numerical regularisation
+_M_REG_RTOL: float = 1e-14
+"""Inertia matrix regularisation shift as a fraction of M.max() for strict PD."""
+
+# Mode classification gates
+_RIGID_BODY_RTOL: float = 1e-14
+"""Eigenvalue below this fraction of lam_max is classified as a rigid body mode."""
+_DISTORTION_RTOL: float = 1e-7
+"""Eigenvalue below this fraction of lam_max is a candidate distortion mode."""
+_TORSION_SCORE_CAP: float = 3.0
+"""Cap on normalised torsion metric used in axial mode scoring to prevent domination."""
+_BENDING_CORR_MIN: float = 0.3
+"""Minimum y- or z-correlation for a mode to pass the bending validation check."""
+_DISTORTION_CORR_MAX: float = 0.08
+"""Maximum geometric correlation / torsion activity threshold for the distortion gate."""
+
 # Classical beam modes for spanwise export (distortion modes opt-in via explicit labels).
 DEFAULT_BEAM_EXPORT_MODE_LABELS: tuple[str, ...] = (
     "axial",
@@ -73,7 +89,7 @@ def _build_inertia_matrix(section, kin):
         for gd in gdofs:
             M[gd, gd] += w
     # Guarantee strict positive definiteness
-    M += np.eye(n_dof) * 1e-14 * max(M.max(), 1.0)
+    M += np.eye(n_dof) * _M_REG_RTOL * max(M.max(), 1.0)
     return M
 
 
@@ -177,7 +193,7 @@ def _classical_export_indices(
     mean_tr = float(np.mean(tr)) + 1e-30
     t_norm = tr / mean_tr
 
-    s_ax = w_mem * mem - w_corr * np.maximum(cy, cz) - w_tor * np.minimum(t_norm, 3.0)
+    s_ax = w_mem * mem - w_corr * np.maximum(cy, cz) - w_tor * np.minimum(t_norm, _TORSION_SCORE_CAP)
     axial_k = int(np.argmax(s_ax))
     if threshold > 0.0 and n >= 12:
         s_sorted = np.sort(s_ax)[::-1]
@@ -270,11 +286,11 @@ def validate_export_classification(
     for lab in ("bending_x", "bending_y"):
         phi = result.modes[:, picks[lab]]
         cyy, czz = _corr_yz(phi, section, ndpn)
-        ok = max(cyy, czz) > 0.3
+        ok = max(cyy, czz) > _BENDING_CORR_MIN
         checks[f"{lab}_correlation"] = ok
         if not ok:
             warnings.warn(
-                f"validate_export_classification: {lab} max correlation {max(cyy, czz):.3f} <= 0.3.",
+                f"validate_export_classification: {lab} max correlation {max(cyy, czz):.3f} <= {_BENDING_CORR_MIN}.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -307,7 +323,7 @@ def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int,
     pos = result.eigenvalues[result.eigenvalues > 1e-12] if ref is None else ref[ref > 1e-12]
     lam = float(result.eigenvalues[k])
     lam_max = float(np.max(pos)) if len(pos) else lam
-    if lam < 1e-14 * max(lam_max, 1.0):
+    if lam < _RIGID_BODY_RTOL * max(lam_max, 1.0):
         return "rigid_body"
 
     ndpn = result.n_dof // max(section.n_nodes, 1)
@@ -320,12 +336,12 @@ def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int,
     cy, cz = _corr_yz(phi, section, ndpn)
     tr = _mode_torsion_raw(phi, section, ndpn)
     phi_norm = float(np.linalg.norm(phi)) + 1e-30
-    if lam < 1e-7 * max(lam_max, 1.0) and max(cy, cz) < 0.08 and tr / phi_norm < 0.25:
+    if lam < _DISTORTION_RTOL * max(lam_max, 1.0) and max(cy, cz) < _DISTORTION_CORR_MAX and tr / phi_norm < 0.25:
         idx = sum(
             1
             for j in range(k)
-            if float(result.eigenvalues[j]) < 1e-7 * max(lam_max, 1.0)
-            and max(_corr_yz(result.modes[:, j], section, ndpn)) < 0.08
+            if float(result.eigenvalues[j]) < _DISTORTION_RTOL * max(lam_max, 1.0)
+            and max(_corr_yz(result.modes[:, j], section, ndpn)) < _DISTORTION_CORR_MAX
             and _mode_torsion_raw(result.modes[:, j], section, ndpn)
             / (float(np.linalg.norm(result.modes[:, j])) + 1e-30)
             < 0.25

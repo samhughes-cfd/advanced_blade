@@ -35,10 +35,20 @@ def beam_section_stations_from_gbt(
     section_definitions: tuple[Any, ...],
     bg: Any,
     n_beam_nodes: int,
+    *,
+    n_modes_floor: int = 24,
+    n_modes_multiplier: int = 4,
 ) -> tuple[List[SectionStation], list[str]]:
     """
     Per structural station: GBT modal analysis → classical :class:`SectionStiffness`,
     PCHIP onto beam-node span coordinates, then ``SectionStation`` rows.
+
+    n_modes_floor: minimum GBT modes computed per cross-section regardless of mesh
+        density. Default 24 ensures at least the 4 classical export modes plus
+        several distortional modes are resolved.
+    n_modes_multiplier: target n_cross = multiplier × n_beam_nodes. Increase for
+        finer meshes where higher distortional modes may couple to beam DOFs.
+        Default 4.
     """
     z_src = np.asarray(station_z, dtype=np.float64).ravel()
     n_s = int(z_src.shape[0])
@@ -48,7 +58,7 @@ def beam_section_stations_from_gbt(
     stiff_list: list[SectionStiffness] = []
     k7_src: list[NDArray[np.float64]] = []
     reports: list[str] = []
-    n_cross = max(24, 4 * int(n_beam_nodes))
+    n_cross = max(n_modes_floor, n_modes_multiplier * int(n_beam_nodes))
     for sd in section_definitions:
         cs = section_definition_to_gbt_cross_section(sd)
         loads = SectionLoads(N=-1.0)

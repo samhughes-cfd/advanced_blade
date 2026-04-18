@@ -8,66 +8,40 @@ from pathlib import Path
 import numpy as np
 
 import blade_precompute.global_beam_model as bm
-from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
-from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 from blade_precompute.global_beam_model.engine.postprocess import sample_resultants_at_z
 
 
-def _tapered_K7(z_nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    z0, z1 = float(z_nodes[0]), float(z_nodes[-1])
-    n = z_nodes.shape[0]
-    mats6 = np.zeros((n, 6, 6), dtype=np.float64)
-    mats7 = np.zeros((n, 7, 7), dtype=np.float64)
-    for i, z in enumerate(z_nodes):
-        t = (z - z0) / (z1 - z0 + 1e-30)
-        EA = 8.0e9 * (1.0 - 0.55 * t)
-        EIy = 5.0e6 * (1.0 - 0.45 * t)
-        EIz = 12.0e6 * (1.0 - 0.40 * t)
-        GJ = 4.0e6 * (1.0 - 0.35 * t)
-        kAy = 5.0e5 * (1.0 - 0.2 * t)
-        kAz = 5.0e5 * (1.0 - 0.2 * t)
-        Kww = 8.0e5 * (1.0 - 0.25 * t)
-        mats6[i, 0, 0] = EA
-        mats6[i, 1, 1] = EIy
-        mats6[i, 2, 2] = EIz
-        mats6[i, 3, 3] = GJ
-        mats6[i, 4, 4] = kAy
-        mats6[i, 5, 5] = kAz
-        mats7[i, :6, :6] = mats6[i]
-        mats7[i, 6, 6] = Kww
-    return mats6, mats7
+def _gbt_model(yaml_path: Path, n_beam_nodes: int) -> bm.BeamModel:
+    """Build a BeamModel from a blade YAML using the full GBT stiffness pipeline."""
+    from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
+    from blade_precompute.orchestration.gbt_beam_stations import beam_section_stations_from_gbt
+    from blade_precompute.section_optimisation.api import BladeDesignProblem
+    from blade_precompute.section_optimisation.core.types import DesignVector
+    from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
 
-
-def _smoke_model() -> bm.BeamModel:
-    L = 12.0
-    n_st = 5
-    z_st = np.linspace(0.0, L, n_st)
-    x_pre = 0.02 * (z_st / L) ** 2
-    r_ref = np.stack([x_pre, np.zeros_like(z_st), z_st], axis=1)
-    kappa0 = np.zeros((n_st, 3), dtype=np.float64)
-    for k in range(1, n_st - 1):
-        zm, z0, z2 = z_st[k], z_st[k - 1], z_st[k + 1]
-        xm = x_pre[k]
-        x0 = x_pre[k - 1]
-        x2 = x_pre[k + 1]
-        d2x = ((x2 - xm) / (z2 - zm) - (xm - x0) / (zm - z0)) / (0.5 * (z2 - z0))
-        kappa0[k, 1] = float(-d2x)
-    geom = BladeGeometry(
-        z_stations=z_st,
-        r_ref=r_ref,
-        kappa0=kappa0,
-        tau0=np.zeros(n_st),
-        chord=np.ones(n_st) * 0.5,
-        twist=np.zeros(n_st),
-        airfoil_profiles=[],
-        web_positions=np.zeros((0, 2)),
-        subcomponent_materials={},
-        chi0=np.zeros(n_st),
+    bg = BladeDesignProblem.load_geometry(yaml_path)
+    n = int(bg.z_stations.shape[0])
+    dv = DesignVector(
+        t_skin=np.full(n, 0.012, dtype=np.float64),
+        t_cap=np.full(n, 0.050, dtype=np.float64),
+        t_web=np.full(n, 0.015, dtype=np.float64),
     )
-    n_nodes = 17
-    K6s, K7s = _tapered_K7(z_st)
-    stations = stations_from_arrays(z_st, K6s, K7s)
-    return bm.BeamModel.from_blade_geometry(geom, n_nodes, stations, span_axis=2)
+    section_defs = SectionBuilder.build(dv, bg)
+    z = np.array([float(sd.station_z) for sd in section_defs], dtype=np.float64)
+    stations, _ = beam_section_stations_from_gbt(z, tuple(section_defs), bg, n_beam_nodes)
+    geom = BladeGeometry(
+        z_stations=np.asarray(bg.z_stations, dtype=np.float64),
+        r_ref=np.asarray(bg.r_ref, dtype=np.float64),
+        kappa0=np.asarray(bg.kappa0, dtype=np.float64),
+        tau0=np.asarray(bg.tau0, dtype=np.float64),
+        chord=np.asarray(bg.chord, dtype=np.float64),
+        twist=np.asarray(bg.twist, dtype=np.float64),
+        airfoil_profiles=list(bg.airfoil_profiles),
+        web_positions=np.asarray(bg.web_positions, dtype=np.float64),
+        subcomponent_materials=dict(bg.subcomponent_materials),
+        chi0=None,
+    )
+    return bm.BeamModel.from_blade_geometry(geom, n_beam_nodes, stations, span_axis=2)
 
 
 def _summarise(res: bm.BeamSolveResult, model: bm.BeamModel, *, print_spanwise: bool) -> None:
@@ -95,16 +69,34 @@ def _summarise(res: bm.BeamSolveResult, model: bm.BeamModel, *, print_spanwise: 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a minimal beam static solve (canonical: BeamSolveResult).")
     parser.add_argument(
+        "--yaml",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "example_blade.yaml",
+        help="Blade geometry YAML (default: repo-root/example_blade.yaml).",
+    )
+    parser.add_argument(
+        "--n-nodes",
+        type=int,
+        default=17,
+        help="Number of beam nodes (default: 17).",
+    )
+    parser.add_argument(
+        "--load-vy",
+        type=float,
+        default=350.0,
+        help="Uniform lateral distributed load [N/m] along the span (default: 350.0).",
+    )
+    parser.add_argument(
         "--max-iter",
         type=int,
         default=70,
-        help="Newton iteration cap (default tuned for the built-in smoke case).",
+        help="Newton iteration cap (default tuned for the GBT/YAML-driven case).",
     )
     parser.add_argument(
         "--n-load-steps",
         type=int,
         default=18,
-        help="Load increments for the built-in distributed lateral load.",
+        help="Load increments for the distributed lateral load.",
     )
     parser.add_argument(
         "--plot",
@@ -129,10 +121,10 @@ def main() -> None:
         help="After the solve, print sampled spanwise resultant lines [N, Vy, Vz, My, Mz, T, B].",
     )
     args = parser.parse_args()
-    model = _smoke_model()
+    model = _gbt_model(args.yaml, args.n_nodes)
     n = model.n_nodes
     q_line = np.zeros((len(model.elements), 3), dtype=np.float64)
-    q_line[:, 1] = 350.0
+    q_line[:, 1] = args.load_vy
     loads = bm.BeamLoads(
         nodal_F=np.zeros((n, 3)),
         nodal_M=np.zeros((n, 3)),
