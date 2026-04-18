@@ -133,19 +133,24 @@ def gbt_to_k7(
     K6: NDArray[np.float64],
     *,
     warping_index: int | None = None,
+    full_vlasov: bool = False,
 ) -> NDArray[np.float64]:
     """
-    Build a ``(7, 7)`` section stiffness with GBT-derived torsion–warping coupling.
+    Build a ``(7, 7)`` section stiffness with GBT-derived warping couplings.
 
     Copies ``K6`` into the leading block. Uses the full modal basis ``result`` (not
     the four-mode truncation) to pick a warping-like mode ``k_w`` and sets
-    ``K7[3, 6] = K7[6, 3] = φ_torsionᵀ C φ_{k_w}``, ``K7[6, 6] = φ_{k_w}ᵀ C φ_{k_w}``.
+    ``K7[6, 6] = φ_{k_w}ᵀ C φ_{k_w}``.
+
+    When ``full_vlasov=False`` (default), only torsion–warping is set:
+    ``K7[3, 6] = K7[6, 3] = φ_torsionᵀ C φ_{k_w}``. Shear–warping rows ``4`` and ``5``
+    stay zero (not represented in Kirchhoff strip GBT).
+
+    When ``full_vlasov=True``, also sets extension and bending–warping blocks
+    ``K7[r, 6]`` for ``r`` in ``{0,1,2,3}`` from ``φ_{classical}ᵀ C φ_{k_w}``.
 
     By default ``k_w`` is the mode index *not* among the classical export quartet
     that maximises ``|modal_coupling(torsion, k)|`` (tie-break: smaller eigenvalue).
-
-    Other warping couplings (extension, bending, shear–warping) are left zero; only
-    the torsion row/column is populated in the seventh DOF besides ``K7[6, 6]``.
     """
     K6 = np.asarray(K6, dtype=np.float64).reshape(6, 6)
     if result.section is None:
@@ -182,9 +187,18 @@ def gbt_to_k7(
 
         k_w = best_k
 
-    c_tw = float(result.modal_coupling(k_t, k_w))
     k_ww = float(result.modal_rigidity(k_w))
-    K7[3, 6] = K7[6, 3] = c_tw
+    if full_vlasov:
+        label_to_row = {"axial": 0, "bending_x": 1, "bending_y": 2, "torsion": 3}
+        for label, row in label_to_row.items():
+            if label not in picks:
+                continue
+            k_c = int(picks[label])
+            coup = float(result.modal_coupling(k_c, k_w))
+            K7[row, 6] = K7[6, row] = coup
+    else:
+        c_tw = float(result.modal_coupling(k_t, k_w))
+        K7[3, 6] = K7[6, 3] = c_tw
     K7[6, 6] = float(max(k_ww, max(K6[3, 3], 1e-6), 1e-12))
     return 0.5 * (K7 + K7.T)
 

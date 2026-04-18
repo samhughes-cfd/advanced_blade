@@ -7,7 +7,8 @@ from typing import Any, List
 import numpy as np
 from numpy.typing import NDArray
 
-from blade_precompute.global_beam_model.core.types import SectionStation
+from blade_precompute.global_beam_model.core.types import K7Array, SectionStation
+from blade_precompute.global_beam_model.k7_interpolation import K7Interpolator
 from blade_precompute.global_beam_model.section_property_interpolator import (
     SectionPropertyInterpolator,
     section_stiffness_array_from_sequence,
@@ -27,27 +28,6 @@ from blade_precompute.section_beam_model.gbt.section_stiffness_export import (
     section_stiffness_to_station,
 )
 from blade_precompute.section_buckling.interface.precompute import section_definition_to_gbt_cross_section
-
-
-def _interp_k7_at_z(
-    z: float,
-    z_src: NDArray[np.float64],
-    mats: list[NDArray[np.float64]],
-) -> NDArray[np.float64]:
-    """Piecewise-linear ``(7, 7)`` stiffness between structural stations."""
-    zs = np.asarray(z_src, dtype=np.float64).ravel()
-    if zs.size == 0:
-        raise ValueError("z_src must be non-empty.")
-    if z <= float(zs[0]):
-        return np.asarray(mats[0], dtype=np.float64).copy()
-    if z >= float(zs[-1]):
-        return np.asarray(mats[-1], dtype=np.float64).copy()
-    j = int(np.searchsorted(zs, z, side="right"))
-    z0, z1 = float(zs[j - 1]), float(zs[j])
-    a = (z - z0) / (z1 - z0)
-    return ((1.0 - a) * np.asarray(mats[j - 1], dtype=np.float64) + a * np.asarray(mats[j], dtype=np.float64)).astype(
-        np.float64, copy=False
-    )
 
 
 def beam_section_stations_from_gbt(
@@ -78,13 +58,17 @@ def beam_section_stations_from_gbt(
         st = gbt_to_beam_stiffness(full, sel, section=cs)
         stiff_list.append(st)
         k6_i = section_stiffness_to_k6(st, EIyz=st.EIyz)
-        k7_src.append(gbt_to_k7(full, k6_i))
+        k7_src.append(gbt_to_k7(full, k6_i, full_vlasov=True))
 
     arr = section_stiffness_array_from_sequence(z_src, stiff_list)
     zs = np.asarray(bg.z_stations, dtype=np.float64).ravel()
     z_node = np.linspace(float(zs[0]), float(zs[-1]), int(n_beam_nodes), dtype=np.float64)
     interp = SectionPropertyInterpolator(z_src, arr)
     arr_n = interp.interpolate(z_node, allow_extrapolation=False)
+
+    k7_stack = np.stack(k7_src, axis=0)
+    k7_arr = K7Array(s=z_src, entries=k7_stack)
+    k7_node = K7Interpolator(k7_arr).interpolate(z_node, allow_extrapolation=False)
 
     stations: list[SectionStation] = []
     for i in range(int(n_beam_nodes)):
@@ -97,6 +81,6 @@ def beam_section_stations_from_gbt(
             GA_y=float(arr_n.GA_y[i]),
             EIyz=float(arr_n.EIyz[i]),
         )
-        k7_i = _interp_k7_at_z(float(arr_n.s[i]), z_src, k7_src)
+        k7_i = np.asarray(k7_node.entries[i], dtype=np.float64).copy()
         stations.append(section_stiffness_to_station(float(arr_n.s[i]), st, K7=k7_i))
     return stations, reports

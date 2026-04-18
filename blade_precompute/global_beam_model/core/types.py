@@ -101,6 +101,29 @@ class SectionStiffnessArray:
             raise ValueError("SectionStiffnessArray.s must be strictly increasing.")
 
 
+@dataclass(frozen=True)
+class K7Array:
+    """
+    Tabulated ``(7, 7)`` section stiffness ``K7`` along span coordinate ``s`` [m].
+
+    ``entries`` has shape ``(n_stations, 7, 7)``; ``s`` must be strictly increasing
+    when ``n_stations >= 2``.
+    """
+
+    s: NDArray[np.float64]
+    entries: NDArray[np.float64]
+
+    def __post_init__(self) -> None:
+        s = np.asarray(self.s, dtype=np.float64).ravel()
+        e = np.asarray(self.entries, dtype=np.float64)
+        if e.ndim != 3 or e.shape[1:] != (7, 7):
+            raise ValueError(f"K7Array.entries must have shape (n_stations, 7, 7), got {e.shape}.")
+        if e.shape[0] != s.size:
+            raise ValueError(f"K7Array: len(s)={s.size} != entries.shape[0]={e.shape[0]}.")
+        if s.size >= 2 and np.any(np.diff(s) <= 0):
+            raise ValueError("K7Array.s must be strictly increasing.")
+
+
 @dataclass
 class BeamElement:
     """Two-node straight reference element in the reference configuration."""

@@ -12,7 +12,8 @@ import warnings
 import numpy as np
 from numpy.typing import NDArray
 
-from ..core.types import SectionStation
+from ..core.types import K7Array, SectionStation
+from ..k7_interpolation import K7Interpolator
 
 
 def _sort_stations(stations: Sequence[SectionStation]) -> tuple[NDArray[np.float64], List[int]]:
@@ -50,7 +51,7 @@ def interp_K7(
     z_query: NDArray[np.float64],
     stations: Sequence[SectionStation],
 ) -> NDArray[np.float64]:
-    """Piecewise-linear ``(7,7)`` stiffness at ``z_query``."""
+    """PCHIP-interpolated ``(7,7)`` stiffness at ``z_query`` (upper triangle, symmetrised)."""
     if len(stations) < 2:
         raise ValueError("interp_K7 requires at least two SectionStation entries.")
     zs, order = _sort_stations(stations)
@@ -74,20 +75,10 @@ def interp_K7(
             stacklevel=2,
         )
     mats_arr = np.stack(mats, axis=0)
-
+    k7_array = K7Array(s=zs, entries=mats_arr)
     zq = np.asarray(z_query, dtype=np.float64).ravel()
-    out = np.zeros((zq.shape[0], 7, 7), dtype=np.float64)
-    for k, z in enumerate(zq):
-        if z <= zs[0]:
-            out[k] = mats_arr[0]
-        elif z >= zs[-1]:
-            out[k] = mats_arr[-1]
-        else:
-            j = int(np.searchsorted(zs, z, side="right"))
-            z0, z1 = zs[j - 1], zs[j]
-            a = (z - z0) / (z1 - z0)
-            out[k] = (1.0 - a) * mats_arr[j - 1] + a * mats_arr[j]
-    return out
+    out_arr = K7Interpolator(k7_array).interpolate(zq, allow_extrapolation=False)
+    return np.asarray(out_arr.entries, dtype=np.float64)
 
 
 def interp_scalar_stations(

@@ -14,8 +14,10 @@ from .modal import (
     DEFAULT_BEAM_EXPORT_MODE_LABELS,
     ModalResult,
     classical_export_indices,
+    export_label_to_coarse_bucket,
     select_modes,
     truncation_report,
+    validate_export_classification,
 )
 from .section_stiffness_export import (
     SectionStiffness,
@@ -38,6 +40,8 @@ __all__ = [
     "select_modes",
     "truncation_report",
     "classical_export_indices",
+    "export_label_to_coarse_bucket",
+    "validate_export_classification",
     "SectionStiffness",
     "gbt_to_beam_stiffness",
     "gbt_to_k7",

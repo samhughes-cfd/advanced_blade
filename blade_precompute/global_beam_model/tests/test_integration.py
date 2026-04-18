@@ -8,8 +8,9 @@ import numpy as np
 import pytest
 
 from blade_precompute.global_beam_model.api import BeamAnalysis
-from blade_precompute.global_beam_model.core.types import BeamLoads, BoundaryCondition, SolverOptions
+from blade_precompute.global_beam_model.core.types import BeamLoads, BoundaryCondition, K7Array, SolverOptions
 from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
+from blade_precompute.global_beam_model.k7_interpolation import K7Interpolator
 from blade_precompute.global_beam_model.section_property_interpolator import (
     SectionPropertyInterpolator,
     section_stiffness_array_from_sequence,
@@ -97,6 +98,47 @@ def test_section_to_global_pipeline(example_blade_yaml: Path) -> None:
     tip = np.asarray(res.nodal_positions[-1] - model.X_ref[-1], dtype=np.float64)
     assert np.all(np.isfinite(tip))
     assert float(np.linalg.norm(tip)) > 0.0
+
+
+def test_k7_interpolator_symmetry() -> None:
+    rng = np.random.default_rng(0)
+    n_st = 5
+    s = np.linspace(0.0, 1.0, n_st, dtype=np.float64)
+    mats: list[np.ndarray] = []
+    for _ in range(n_st):
+        a = rng.standard_normal((7, 7))
+        sk = a @ a.T + np.eye(7)
+        mats.append(0.5 * (sk + sk.T))
+    entries = np.stack(mats, axis=0)
+    arr = K7Array(s=s, entries=entries)
+    ip = K7Interpolator(arr)
+    zq = np.linspace(0.0, 1.0, 50, dtype=np.float64)
+    out = ip.interpolate(zq)
+    for i in range(out.entries.shape[0]):
+        k = out.entries[i]
+        assert np.allclose(k, k.T, atol=1e-12)
+
+
+def test_k7_interpolator_smooth() -> None:
+    """PCHIP matches affine ``K7[3,6](s)`` exactly; smooth nonlinear targets need dense stations."""
+    n_st = 20
+    s = np.linspace(0.0, 1.0, n_st, dtype=np.float64)
+    entries = np.zeros((n_st, 7, 7), dtype=np.float64)
+    for i, si in enumerate(s):
+        np.fill_diagonal(entries[i], 1e6)
+        entries[i, 6, 6] = 1e4
+        v = 0.3 * float(si) + 0.02
+        entries[i, 3, 6] = v
+        entries[i, 6, 3] = v
+    arr = K7Array(s=s, entries=entries)
+    ip = K7Interpolator(arr)
+    zq = np.linspace(0.0, 1.0, 100, dtype=np.float64)
+    out = ip.interpolate(zq)
+    for i in range(zq.shape[0]):
+        zi = float(zq[i])
+        pred = float(out.entries[i, 3, 6])
+        an = 0.3 * zi + 0.02
+        assert abs(pred - an) < 1e-9
 
 
 def test_interpolator_monotonic_blade() -> None:

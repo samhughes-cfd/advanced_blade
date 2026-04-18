@@ -1,7 +1,8 @@
 """modal.py - GBT cross-section modal analysis with shared-node assembly."""
 from __future__ import annotations
+import warnings
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -131,8 +132,36 @@ def _corr_yz(phi: NDArray, section: CrossSection, ndpn: int) -> tuple[float, flo
     return corr_y, corr_z
 
 
-def _classical_export_indices(result: "ModalResult", section: CrossSection) -> dict[str, int]:
-    """Pick distinct mode indices for axial / bending_x / bending_y / torsion."""
+def export_label_to_coarse_bucket(label: str) -> str:
+    """Map :meth:`ModalResult.classify_export_mode` labels to legacy :meth:`ModalResult.classify_mode` buckets."""
+    if label in ("axial", "bending_x", "bending_y", "torsion"):
+        return "global"
+    if label == "rigid_body":
+        return "rigid_body"
+    if label.startswith("distortion_"):
+        return "distortional"
+    if label == "undetermined_export":
+        return "local"
+    return "local"
+
+
+def _classical_export_indices(
+    result: "ModalResult",
+    section: CrossSection,
+    *,
+    w_mem: float = 2.0,
+    w_corr: float = 1.0,
+    w_tor: float = 1.0,
+    threshold: float = 0.0,
+) -> dict[str, int]:
+    """
+    Pick distinct mode indices for axial / bending_x / bending_y / torsion using
+    weighted scores on membrane fraction, ``y``/``z`` correlations, and torsion activity.
+
+    If ``threshold > 0`` and enough modes are available, raises ``ValueError`` when the
+    best vs second-best axial (or torsion) score is ambiguous relative to the score spread.
+    Default ``threshold=0`` disables this guard.
+    """
     n = len(result.eigenvalues)
     ndpn = result.n_dof // max(section.n_nodes, 1)
     pf = result.participation_factors()
@@ -145,24 +174,42 @@ def _classical_export_indices(result: "ModalResult", section: CrossSection) -> d
         cy[k], cz[k] = _corr_yz(phi, section, ndpn)
         tr[k] = _mode_torsion_raw(phi, section, ndpn)
 
-    cand_ax = [i for i in range(n) if mem[i] > 0.52 and cy[i] < 0.2 and cz[i] < 0.2]
-    if not cand_ax:
-        cand_ax = [i for i in range(n) if mem[i] > 0.52]
-    if not cand_ax:
-        cand_ax = list(range(n))
-    axial_k = int(cand_ax[int(np.argmin(result.eigenvalues[cand_ax]))])
+    mean_tr = float(np.mean(tr)) + 1e-30
+    t_norm = tr / mean_tr
 
-    cand_t = [i for i in range(n) if i != axial_k and mem[i] < 0.58]
-    if not cand_t:
-        cand_t = [i for i in range(n) if i != axial_k]
-    torsion_k = int(cand_t[int(np.argmax(tr[cand_t]))])
+    s_ax = w_mem * mem - w_corr * np.maximum(cy, cz) - w_tor * np.minimum(t_norm, 3.0)
+    axial_k = int(np.argmax(s_ax))
+    if threshold > 0.0 and n >= 12:
+        s_sorted = np.sort(s_ax)[::-1]
+        spread = float(s_sorted[0] - s_sorted[-1]) + 1e-30
+        if (float(s_sorted[0] - s_sorted[1]) / spread) < threshold:
+            raise ValueError(
+                "classical_export_indices: ambiguous axial mode "
+                f"(relative score gap {(s_sorted[0] - s_sorted[1]) / spread:.4f} < threshold {threshold})."
+            )
+
+    cand_t = [i for i in range(n) if i != axial_k]
+    s_t = np.array(
+        [w_tor * t_norm[i] - w_corr * max(cy[i], cz[i]) - 0.1 * w_mem * mem[i] for i in cand_t],
+        dtype=np.float64,
+    )
+    torsion_k = int(cand_t[int(np.argmax(s_t))])
+    if threshold > 0.0 and len(cand_t) >= 12:
+        st_sorted = np.sort(s_t)[::-1]
+        spread_t = float(st_sorted[0] - st_sorted[-1]) + 1e-30
+        if (float(st_sorted[0] - st_sorted[1]) / spread_t) < threshold:
+            raise ValueError(
+                "classical_export_indices: ambiguous torsion mode "
+                f"(relative score gap {(st_sorted[0] - st_sorted[1]) / spread_t:.4f} < threshold {threshold})."
+            )
 
     used = {axial_k, torsion_k}
     bend_cand = [i for i in range(n) if i not in used]
     if not bend_cand:
         bend_x_k = bend_y_k = int((axial_k + 1) % max(n, 1))
     else:
-        bend_x_k = int(bend_cand[int(np.argmax(cz[bend_cand]))])
+        s_bx = np.array([w_corr * cz[i] - w_mem * mem[i] for i in bend_cand], dtype=np.float64)
+        bend_x_k = int(bend_cand[int(np.argmax(s_bx))])
         used.add(bend_x_k)
         bend_y_pool = [i for i in range(n) if i not in used]
         if not bend_y_pool:
@@ -179,12 +226,79 @@ def _classical_export_indices(result: "ModalResult", section: CrossSection) -> d
     }
 
 
-def classical_export_indices(result: "ModalResult", section: CrossSection) -> dict[str, int]:
+def classical_export_indices(result: "ModalResult", section: CrossSection, **kwargs: Any) -> dict[str, int]:
     """Indices of axial / bending_x / bending_y / torsion modes in ``result.modes`` columns."""
-    return _classical_export_indices(result, section)
+    return _classical_export_indices(result, section, **kwargs)
 
 
-def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int) -> str:
+def validate_export_classification(
+    result: "ModalResult",
+    section: CrossSection,
+    *,
+    rtol: float = 0.1,
+    **idx_kwargs: Any,
+) -> dict[str, bool]:
+    """
+    Sanity-check classical mode assignment; warns on failure.
+
+    ``rtol`` is reserved for future relative tolerances; checks use fixed gates today.
+    """
+    _ = rtol
+    picks = _classical_export_indices(result, section, **idx_kwargs)
+    checks: dict[str, bool] = {}
+    vals = list(picks.values())
+    checks["distinct_indices"] = len(vals) == len(set(vals))
+    if not checks["distinct_indices"]:
+        warnings.warn(
+            "validate_export_classification: classical indices are not all distinct.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    ndpn = result.n_dof // max(section.n_nodes, 1)
+    pf = result.participation_factors()
+    k_ax = picks["axial"]
+    mem_ax = float(pf[k_ax, 0]) if k_ax < pf.shape[0] else 0.5
+    checks["axial_membrane"] = mem_ax > 0.6
+    if not checks["axial_membrane"]:
+        warnings.warn(
+            f"validate_export_classification: axial mode membrane fraction {mem_ax:.3f} <= 0.6.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    for lab in ("bending_x", "bending_y"):
+        phi = result.modes[:, picks[lab]]
+        cyy, czz = _corr_yz(phi, section, ndpn)
+        ok = max(cyy, czz) > 0.3
+        checks[f"{lab}_correlation"] = ok
+        if not ok:
+            warnings.warn(
+                f"validate_export_classification: {lab} max correlation {max(cyy, czz):.3f} <= 0.3.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    n_all = len(result.eigenvalues)
+    tr_all = np.array(
+        [_mode_torsion_raw(result.modes[:, j], section, ndpn) for j in range(n_all)],
+        dtype=np.float64,
+    )
+    mean_tr = float(np.mean(tr_all)) + 1e-30
+    tr_t = float(_mode_torsion_raw(result.modes[:, picks["torsion"]], section, ndpn))
+    checks["torsion_metric"] = tr_t > 0.1 * mean_tr
+    if not checks["torsion_metric"]:
+        warnings.warn(
+            "validate_export_classification: torsion mode strip-w metric below "
+            f"0.1 * mean over modes (tr={tr_t:.4e}, mean={mean_tr:.4e}).",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return checks
+
+
+def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int, **idx_kw: Any) -> str:
     """
     Export label: four classical indices from :func:`_classical_export_indices`,
     short-wave ``distortion_*`` plate modes, or generic ``distortion_*`` for others.
@@ -197,7 +311,7 @@ def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int)
         return "rigid_body"
 
     ndpn = result.n_dof // max(section.n_nodes, 1)
-    picks = _classical_export_indices(result, section)
+    picks = _classical_export_indices(result, section, **idx_kw)
     inv = {v: lab for lab, v in picks.items()}
     if k in inv:
         return inv[k]
@@ -319,7 +433,8 @@ class ModalResult:
     n_nodes:     int
     n_dof:       int
     section:     CrossSection | None = None
-    #: Full positive spectrum (pre-``n_modes`` trim) for stable :meth:`classify_mode` buckets.
+    #: Full positive spectrum (pre-``n_modes`` trim); used when :meth:`classify_mode` falls back
+    #: to eigenvalue buckets if :attr:`section` is unset.
     classification_eigenvalues: NDArray | None = None
     #: When built by :func:`select_modes` with ``mode_labels``, labels per retained column.
     export_column_labels: tuple[str, ...] | None = None
@@ -341,16 +456,23 @@ class ModalResult:
         return float(pos[0]) if len(pos) > 0 else np.inf
 
     def classify_mode(self, k):
-        ref = self.classification_eigenvalues
-        pos = self.eigenvalues[self.eigenvalues > 1e-12] if ref is None else ref[ref > 1e-12]
-        if len(pos) == 0:
-            return "undetermined"
-        med = float(np.median(pos))
-        lam = self.eigenvalues[k]
-        if   lam < 1e-10:       return "rigid_body"
-        elif lam < 0.05 * med:  return "local"
-        elif lam < 0.5  * med:  return "distortional"
-        else:                   return "global"
+        """Coarse bucket; delegates to :meth:`classify_export_mode` when :attr:`section` is set."""
+        if self.section is None:
+            ref = self.classification_eigenvalues
+            pos = self.eigenvalues[self.eigenvalues > 1e-12] if ref is None else ref[ref > 1e-12]
+            if len(pos) == 0:
+                return "undetermined"
+            med = float(np.median(pos))
+            lam = self.eigenvalues[k]
+            if lam < 1e-10:
+                return "rigid_body"
+            if lam < 0.05 * med:
+                return "local"
+            if lam < 0.5 * med:
+                return "distortional"
+            return "global"
+        label = self.classify_export_mode(k)
+        return export_label_to_coarse_bucket(label)
 
     def classify_export_mode(self, k: int) -> str:
         """
