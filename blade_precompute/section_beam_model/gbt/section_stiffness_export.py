@@ -12,6 +12,7 @@ Axis convention (matches :func:`section_stiffness_to_k6` with
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -20,7 +21,7 @@ from numpy.typing import NDArray
 from blade_precompute.global_beam_model.core.types import SectionStation
 
 from .modal import ModalResult, classical_export_indices
-from .prebuckling import PreBucklingAnalysis, SectionLoads
+from .prebuckling import SectionLoads
 from .section import CrossSection
 
 
@@ -74,8 +75,8 @@ def gbt_to_beam_stiffness(
     """
     Extract classical ``EA``, ``EI_*``, ``GJ``, ``GA_*`` for downstream beam models.
 
-    ``EA`` is taken from :class:`PreBucklingAnalysis` strip integration (same as
-    laminate extensional stiffness). ``EI_*`` and ``GJ`` use ``φᵀ C φ`` modal
+    ``EA`` is the stripwise extensional stiffness ``∑ A₁₁ ds`` from
+    :meth:`CrossSection.extensional_stiffness` (no stress solve). ``EI_*`` and ``GJ`` use ``φᵀ C φ`` modal
     rigidities from ``selected_modes`` for the export-labelled bending and torsion
     modes (``M``-orthonormal modes satisfy ``modal_rigidity(k) == λ_k``).
 
@@ -105,9 +106,14 @@ def gbt_to_beam_stiffness(
                 f"{[selected_modes.classify_export_mode(k) for k in range(n)]}."
             )
 
-    loads_use = loads if loads is not None else SectionLoads(N=-1.0)
-    snap = PreBucklingAnalysis(section, loads_use).section_properties()
-    EA = float(snap["EA"])
+    if loads is not None:
+        warnings.warn(
+            "gbt_to_beam_stiffness(..., loads=...) is deprecated and ignored; EA is taken from "
+            "strip A₁₁ integration only.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    EA = float(section.extensional_stiffness())
 
     def _rig(lab: str) -> float:
         if lab not in found:
@@ -175,9 +181,9 @@ def gbt_to_k7(
             lam_k = float(result.eigenvalues[k])
             if best_k is None:
                 best_k, best_c = k, c_abs
-            elif c_abs > best_c + 1e-30 * max(best_c, 1.0):
+            elif c_abs > best_c + 1e-9 * max(best_c, 1.0):
                 best_k, best_c = k, c_abs
-            elif abs(c_abs - best_c) <= 1e-30 * max(best_c, 1.0) and best_k is not None:
+            elif abs(c_abs - best_c) <= 1e-9 * max(best_c, 1.0) and best_k is not None:
                 if lam_k < float(result.eigenvalues[best_k]):
                     best_k = k
         if best_k is None:
@@ -203,10 +209,21 @@ def gbt_to_k7(
     return 0.5 * (K7 + K7.T)
 
 
-def section_stiffness_to_k6(st: SectionStiffness, *, EIyz: float | None = None) -> NDArray[np.float64]:
-    """Build ``(6, 6)`` section stiffness ``K6`` in beam strain order (optional ``EIyz`` off-diagonal)."""
+def section_stiffness_to_k6(
+    st: SectionStiffness,
+    *,
+    EIyz: float | None = None,
+    shear_correction: float = 5.0 / 6.0,
+) -> NDArray[np.float64]:
+    """
+    Build ``(6, 6)`` section stiffness ``K6`` in beam strain order (optional ``EIyz`` off-diagonal).
+
+    ``shear_correction`` scales integrated ``GA`` on the transverse shear diagonal entries
+    (default ``5/6`` is the rectangular-section Timoshenko factor). Thin-walled composite
+    sections may warrant a geometry- or theory-derived value.
+    """
     eyz = float(st.EIyz if EIyz is None else EIyz)
-    alpha = 5.0 / 6.0
+    alpha = float(shear_correction)
     K6 = np.zeros((6, 6), dtype=np.float64)
     K6[0, 0] = st.EA
     K6[1, 1] = st.EI_x

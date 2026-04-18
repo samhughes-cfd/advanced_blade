@@ -88,15 +88,20 @@ class SectionStiffnessArray:
     GJ: NDArray[np.float64]
     GA_x: NDArray[np.float64]
     GA_y: NDArray[np.float64]
-    EIyz: NDArray[np.float64]
+    #: Omitted at construction becomes zeros matching ``s`` (frozen-safe in ``__post_init__``).
+    EIyz: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
         s = np.asarray(self.s, dtype=np.float64).ravel()
         n = s.size
+        object.__setattr__(self, "s", s)
+        if self.EIyz is None:
+            object.__setattr__(self, "EIyz", np.zeros_like(s, dtype=np.float64))
         for name in ("EA", "EI_x", "EI_y", "GJ", "GA_x", "GA_y", "EIyz"):
             a = np.asarray(getattr(self, name), dtype=np.float64).ravel()
             if a.shape[0] != n:
                 raise ValueError(f"SectionStiffnessArray.{name} length {a.shape[0]} != len(s)={n}.")
+            object.__setattr__(self, name, a)
         if n >= 2 and np.any(np.diff(s) <= 0):
             raise ValueError("SectionStiffnessArray.s must be strictly increasing.")
 

@@ -107,6 +107,14 @@ class CrossSection:
             j=(i+1)%len(pts); area+=pts[i,0]*pts[j,1]-pts[j,0]*pts[i,1]
         return abs(area)/2.0
 
+    def extensional_stiffness(self) -> float:
+        """Stripwise axial stiffness ``∑ A₁₁ ds`` [N] from each strip's CLPT ``A`` matrix."""
+        ea = 0.0
+        for i in range(self.n_strips):
+            a11 = float(self.strip_abd(i)[0, 0])
+            ea += a11 * float(self.get_strip(i).length)
+        return float(ea)
+
     def validate(self):
         issues=[]
         for i,w in enumerate(self.walls):
