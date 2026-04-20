@@ -1,19 +1,26 @@
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
-from main_precompute import (
+from blade_precompute.orchestration import PrecomputeOrchestrationContext
+from blade_precompute.orchestration.component_materials import ComponentMaterialsMap
+from blade_precompute.orchestration.precompute import (
     PrecomputeInputs,
+    SectionGeometryOutputs,
     SectionGeometryParams,
     SectionGeometryStage,
 )
+from blade_precompute.orchestration.system_layout import resolve_system_type
 
 
 def _dummy_inputs() -> PrecomputeInputs:
     return PrecomputeInputs(
-        spanwise_path="x",  # type: ignore[arg-type]
-        extreme_loads_path="y",  # type: ignore[arg-type]
+        spanwise_path=Path("x"),
+        extreme_loads_path=Path("y"),
         span_r_z_m=np.array([0.0, 4.0, 8.0], dtype=np.float64),
         chord_m=np.array([2.0, 1.6, 1.2], dtype=np.float64),
         twist_deg=np.zeros(3, dtype=np.float64),
@@ -27,14 +34,45 @@ def _dummy_inputs() -> PrecomputeInputs:
     )
 
 
+def _orch() -> PrecomputeOrchestrationContext:
+    return PrecomputeOrchestrationContext(
+        system_type_key="legacy",
+        layout=resolve_system_type("legacy"),
+        component_materials=ComponentMaterialsMap(skin=0, spar_cap=0, shear_web=0),
+    )
+
+
 def test_stage_get_results_requires_execute() -> None:
     st = SectionGeometryStage(
-        SectionGeometryParams(
+        params=SectionGeometryParams(
             inp=_dummy_inputs(),
-            out_dir=".",  # type: ignore[arg-type]
+            out_dir=Path("."),
             plot_station_spec="root",
-            orchestration=None,  # type: ignore[arg-type]
+            orchestration=_orch(),
         )
     )
     with pytest.raises(RuntimeError):
         st.get_results()
+
+
+@patch("blade_precompute.orchestration.precompute.stage_facade.section_geometry_impl")
+def test_execute_returns_self_and_is_idempotent(mock_impl: object, tmp_path: Path) -> None:
+    mock_impl.return_value = SectionGeometryOutputs(
+        station_indices=[0],
+        station_r_z_m=[0.0],
+        png_paths=[],
+        json_paths=[],
+    )
+    st = SectionGeometryStage(
+        params=SectionGeometryParams(
+            inp=_dummy_inputs(),
+            out_dir=tmp_path,
+            plot_station_spec="root",
+            orchestration=_orch(),
+        )
+    )
+    r1 = st.execute()
+    assert r1 is st
+    r2 = st.execute()
+    assert r2 is st
+    assert mock_impl.call_count == 1

@@ -96,7 +96,8 @@ def plot_sdf_field(phi, grid, ax=None, title="SDF field",
 
 
 def plot_section(section_geometry, grid, ax=None, alpha=0.45,
-                 show_airfoil=True, title="Blade section geometry"):
+                 show_airfoil=False, title="Blade section geometry",
+                 show_legend=True):
     """Plot all subcomponents as filled colour patches on one axis.
 
     Parameters
@@ -107,8 +108,12 @@ def plot_section(section_geometry, grid, ax=None, alpha=0.45,
     alpha : float
         Fill transparency.
     show_airfoil : bool
-        Overlay the airfoil boundary contour.
+        If True, overlay the chord-frame ``section_geometry.airfoil`` zero contour
+        in black. Default False: that line is often misleading when the section
+        is twist-rotated in body axes while ``airfoil`` stays chord-aligned.
     title : str
+    show_legend : bool
+        If True (default), draw a component colour legend on this axis.
 
     Returns
     -------
@@ -135,23 +140,23 @@ def plot_section(section_geometry, grid, ax=None, alpha=0.45,
         ax.contour(grid.X, grid.Y, phi_af,
                    levels=[0.0], colors=["k"], linewidths=2.0)
 
-    # Legend patches
-    from matplotlib.patches import Patch
-    handles = [
-        Patch(facecolor=_component_color(lbl), alpha=alpha, label=lbl)
-        for lbl in section_geometry
-    ]
-    ax.legend(handles=handles, loc="upper right", fontsize=8)
+    if show_legend:
+        from matplotlib.patches import Patch
+        handles = [
+            Patch(facecolor=_component_color(lbl), alpha=alpha, label=lbl)
+            for lbl in section_geometry
+        ]
+        ax.legend(handles=handles, loc="upper right", fontsize=8)
     ax.set_aspect("equal")
     ax.set_title(title)
-    ax.set_xlabel("x / chord")
-    ax.set_ylabel("y / chord")
+    ax.set_xlabel("x_B [m]")
+    ax.set_ylabel("y_B [m]")
     return fig, ax
 
 
 def plot_medial_axes(midline_dict, ax=None, grid=None,
                      section_geometry=None, alpha_bg=0.2,
-                     title="Medial axes"):
+                     title="Medial axes", show_airfoil=False):
     """Plot medial axis polylines, optionally on top of section geometry.
 
     Parameters
@@ -163,6 +168,8 @@ def plot_medial_axes(midline_dict, ax=None, grid=None,
     alpha_bg : float
         Background section alpha.
     title : str
+    show_airfoil : bool
+        Passed to :func:`plot_section` when drawing the background (default False).
 
     Returns
     -------
@@ -175,7 +182,7 @@ def plot_medial_axes(midline_dict, ax=None, grid=None,
 
     if grid is not None and section_geometry is not None:
         plot_section(section_geometry, grid, ax=ax,
-                     alpha=alpha_bg, show_airfoil=True,
+                     alpha=alpha_bg, show_airfoil=show_airfoil,
                      title=title)
 
     for label, polylines in midline_dict.items():
@@ -196,8 +203,8 @@ def plot_medial_axes(midline_dict, ax=None, grid=None,
     ax.legend(seen.values(), seen.keys(), loc="upper right", fontsize=8)
     ax.set_aspect("equal")
     ax.set_title(title)
-    ax.set_xlabel("x / chord")
-    ax.set_ylabel("y / chord")
+    ax.set_xlabel("x_B [m]")
+    ax.set_ylabel("y_B [m]")
     return fig, ax
 
 

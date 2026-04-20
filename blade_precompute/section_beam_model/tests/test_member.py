@@ -13,6 +13,8 @@ from blade_precompute.section_beam_model.gbt import (
     SectionLoads,
     WallDefinition,
 )
+from blade_precompute.section_beam_model.gbt.member import _build_stress_weighted_B
+from blade_precompute.section_beam_model.gbt.prebuckling import PreBucklingAnalysis
 
 MAT = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
 
@@ -59,3 +61,77 @@ def test_signature_curve_shape():
     sig = ana.signature_curve(n_pts=5)
     assert len(sig['half_wave_lengths']) == 5
     assert len(sig['lambda_cr']) == 5
+
+
+def _closed_box_section(mat):
+    hb, hh = 0.03, 0.10
+    return CrossSection(
+        [
+            WallDefinition([-hb, -hh], [hb, -hh], mat, n_strips=4, name="bot"),
+            WallDefinition([hb, -hh], [hb, hh], mat, n_strips=4, name="right"),
+            WallDefinition([hb, hh], [-hb, hh], mat, n_strips=4, name="top"),
+            WallDefinition([-hb, hh], [-hb, -hh], mat, n_strips=4, name="left"),
+        ]
+    )
+
+
+def test_w_dof_only_in_B_matrix():
+    """Stress-weighted M_sigma must lump axial stress only onto w-DOFs (index % ndpn == 2)."""
+    kin = KirchhoffKinematics()
+    ndpn = kin.n_dof_per_strip // 2
+    w_local_idx = 2
+    mat = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
+    sec = _closed_box_section(mat)
+    loads = SectionLoads(N=-1.0e4)
+    modal = CrossSectionModalAnalysis(sec, loads).run(n_modes=8)
+    n_modes = 6
+    pb = PreBucklingAnalysis(sec, loads)
+    Nx_arr = pb.axial_stress_resultants()
+    n_dof = sec.n_nodes * ndpn
+    M_sigma = np.zeros(n_dof)
+    for i in range(sec.n_strips):
+        Nx = Nx_arr[i]
+        ds = sec.get_strip(i).length
+        gdofs = sec.strip_global_dofs(i, ndpn)
+        w = Nx * ds / 2.0
+        for gd in gdofs:
+            if gd < n_dof and (gd % ndpn) == w_local_idx:
+                M_sigma[gd] += w
+    for idx in range(n_dof):
+        if idx % ndpn != w_local_idx:
+            assert M_sigma[idx] == 0.0
+    B = _build_stress_weighted_B(modal, sec, loads, n_modes, kin)
+    Phi = modal.modes[:, :n_modes]
+    B_ref = -Phi.T @ (M_sigma[:, None] * Phi)
+    assert np.allclose(B, B_ref, rtol=1e-10, atol=1e-12)
+
+
+def test_eigenvalue_threshold_scale_invariance():
+    """Stiffness scaled by s: diagonal-B member buckling keeps lam_hi / lam_lo ≈ 1/s (within 0.1%)."""
+    scale = 1.0e6
+    mat_lo = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
+    mat_hi = IsotropicMaterial(E=210e9 * scale, nu=0.3, t=2e-3)
+    sec_lo = _closed_box_section(mat_lo)
+    sec_hi = _closed_box_section(mat_hi)
+    loads = SectionLoads(N=-1.0)
+    modal_lo = CrossSectionModalAnalysis(sec_lo, loads).run(n_modes=8)
+    modal_hi = CrossSectionModalAnalysis(sec_hi, loads).run(n_modes=8)
+    n_modes = 4
+    # Diagonal B fallback (no section/loads): exercises A = K^{-1} Kg with scale-extreme matrices.
+    lam_lo = MemberBucklingAnalysis(
+        modal_lo,
+        1.0,
+        BoundaryConditions.simply_supported(),
+        n_elem=16,
+        n_modes=n_modes,
+    ).run().lambda_cr
+    lam_hi = MemberBucklingAnalysis(
+        modal_hi,
+        1.0,
+        BoundaryConditions.simply_supported(),
+        n_elem=16,
+        n_modes=n_modes,
+    ).run().lambda_cr
+    assert lam_lo > 0 and lam_hi > 0
+    ratio = lam_hi / lam_lo * scale
+    assert abs(ratio - 1.0) < 1e-3

@@ -50,3 +50,11 @@ def test_abd_matrix_retrieved():
     sec = c_section()
     abd = sec.strip_abd(0)
     assert abd.shape == (6, 6)
+
+
+def test_enclosed_area_raises_for_open_section():
+    """Shoelace area is undefined for open strips; require a closed loop."""
+    web = WallDefinition([0, 0], [0.1, 0], MAT, n_strips=4, name="open")
+    sec = CrossSection([web])
+    with pytest.raises(ValueError, match="enclosed_area\\(\\) is only valid for closed sections"):
+        sec.enclosed_area()

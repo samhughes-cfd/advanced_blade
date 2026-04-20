@@ -10,6 +10,13 @@ from .engine.implicit_section_geometry import (
     SDFGrid,
     extract_midline,
 )
+from .geometry.section_axes import max_thickness_chord_x, pitch_axis_x_from_le
+from .structural import (
+    FixedCapAnchor,
+    StructuralFamily,
+    parse_fixed_cap_anchor,
+    parse_structural_family,
+)
 from .io import SectionPropertiesReport, export_midlines_csv, export_section_json
 from .viz import plot_medial_axes, plot_sdf_field, plot_section
 
@@ -34,4 +41,10 @@ __all__ = [
     "plot_section",
     "plot_sdf_field",
     "plot_medial_axes",
+    "StructuralFamily",
+    "FixedCapAnchor",
+    "parse_structural_family",
+    "parse_fixed_cap_anchor",
+    "pitch_axis_x_from_le",
+    "max_thickness_chord_x",
 ]

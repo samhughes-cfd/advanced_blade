@@ -35,6 +35,13 @@ from .sdf import (
     union,
 )
 from .transforms import SDFFrame, rotate_field, scale_field, translate_field
+from ...geometry.section_axes import max_thickness_chord_x, pitch_axis_x_from_le
+from ...structural import (
+    FixedCapAnchor,
+    StructuralFamily,
+    parse_fixed_cap_anchor,
+    parse_structural_family,
+)
 
 __all__ = [
     "AirfoilSDF",
@@ -74,4 +81,10 @@ __all__ = [
     "translate_field",
     "scale_field",
     "SDFFrame",
+    "StructuralFamily",
+    "FixedCapAnchor",
+    "parse_structural_family",
+    "parse_fixed_cap_anchor",
+    "pitch_axis_x_from_le",
+    "max_thickness_chord_x",
 ]

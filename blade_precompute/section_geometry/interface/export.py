@@ -161,13 +161,38 @@ def export_midlines_csv(midline_dict, filepath):
 # Full section JSON export
 # ---------------------------------------------------------------------------
 
-def export_section_json(section_geometry, grid, midline_dict, filepath):
+def _multicell_host(section_geometry):
+    """Resolve MultiCellSection (or wrapped BladeSectionGeometry._mcs)."""
+    return getattr(section_geometry, "_mcs", None) or section_geometry
+
+
+def _zero_contour_to_nested(grid, sdf_callable):
+    """Extract φ=0 as list of polylines (each Nx2), JSON-ready."""
+    phi = grid.eval(sdf_callable)
+    segs = grid.zero_contour(phi)
+    return [np.asarray(s, dtype=float).tolist() for s in segs]
+
+
+def export_section_json(
+    section_geometry,
+    grid,
+    midline_dict,
+    filepath,
+    *,
+    include_component_zero_contours=False,
+    include_geometry_detail=True,
+):
     """Export a complete section description to JSON.
 
     Includes:
-      - Airfoil vertices
+      - Reference airfoil contour vertices (chord-frame ``AirfoilSDF`` polyline)
       - Per-component section properties
-      - Medial axis polylines
+      - Medial axis polylines (flat ``medial_axes`` dict, for compatibility)
+      - When ``include_geometry_detail`` is True, a nested ``geometry`` block:
+        * ``skin``: outer mold line, inner mold line, and ``outer_skin`` medial polylines
+        * ``components``: per label, boundary loops (φ=0 of that solid) and medial polylines
+      - Optional legacy flat ``component_zero_contours`` (same loops as
+        ``geometry["components"][label]["boundary"]`` when both are enabled).
 
     Parameters
     ----------
@@ -175,8 +200,14 @@ def export_section_json(section_geometry, grid, midline_dict, filepath):
     grid : SDFGrid
     midline_dict : dict  {label: list of ndarray}
     filepath : str
+    include_component_zero_contours : bool
+        If True, also write flat ``component_zero_contours`` (matplotlib contours).
+    include_geometry_detail : bool
+        If True, populate ``geometry`` with skin mold lines and per-component
+        boundaries plus medials. If False, medial polylines are still written
+        to the flat ``medial_axes`` key when ``midline_dict`` is non-empty.
     """
-    # Airfoil
+    # Airfoil (reference section shape; not the twisted boundary SDFs)
     af_verts = section_geometry.airfoil.vertices.tolist()
 
     # Section properties
@@ -190,16 +221,51 @@ def export_section_json(section_geometry, grid, midline_dict, filepath):
         props_out[label] = {k: float(v) if k != "label" else v
                             for k, v in props.items()}
 
-    # Medial axes
+    # Medial axes (flat, backward compatible)
     midlines_out = {}
     for label, polylines in midline_dict.items():
         midlines_out[label] = [_arr(p) for p in polylines]
 
     payload = {
+        "schema_version": 2,
         "airfoil_vertices": af_verts,
+        "reference_airfoil_vertices": af_verts,
         "section_properties": props_out,
         "medial_axes": midlines_out,
     }
+
+    if include_geometry_detail:
+        geometry: dict = {"components": {}}
+        host = _multicell_host(section_geometry)
+        o_sdf = getattr(host, "_skin_outer_boundary_sdf", None)
+        i_sdf = getattr(host, "_skin_inner_boundary_sdf", None)
+
+        skin_block = {}
+        if o_sdf is not None and i_sdf is not None:
+            skin_block["outer_boundary"] = _zero_contour_to_nested(grid, o_sdf)
+            skin_block["inner_boundary"] = _zero_contour_to_nested(grid, i_sdf)
+        else:
+            skin_block["outer_boundary"] = None
+            skin_block["inner_boundary"] = None
+        skin_block["medial_axes"] = midlines_out.get("outer_skin", [])
+        geometry["skin"] = skin_block
+
+        for label in section_geometry.labels:
+            geometry["components"][label] = {
+                "boundary": _zero_contour_to_nested(
+                    grid, section_geometry[label]
+                ),
+                "medial_axes": midlines_out.get(label, []),
+            }
+        payload["geometry"] = geometry
+
+    if include_component_zero_contours:
+        contours_out = {}
+        for label in section_geometry.labels:
+            phi = grid.eval(section_geometry[label])
+            segs = grid.zero_contour(phi)
+            contours_out[label] = [s.tolist() for s in segs]
+        payload["component_zero_contours"] = contours_out
 
     with open(filepath, "w") as fh:
         json.dump(payload, fh, indent=2)

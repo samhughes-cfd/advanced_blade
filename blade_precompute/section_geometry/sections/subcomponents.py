@@ -14,16 +14,18 @@ The spar cap outer face is flush against the inner skin surface (the airfoil
 boundary offset inward by skin_thickness).  The inner face is a further
 inward offset by cap_height — so both faces share identical curvature:
 
-    phi_inner_skin  = offset(phi_airfoil, -skin_thickness)
+    phi_inner_skin  = offset(phi_airfoil, -skin_thickness / 2.0)
 
     phi_cap_upper   = intersect(
-        shell(phi_inner_skin, cap_height),   # band: outer = skin, inner = skin - cap_height
-        half_plane(y > 0),                   # suction side only
+        cap_laminate_slab(phi_inner_skin, cap_height),  # cavity side: -cap_h < phi_inner < 0
+        half_plane(y > 0),                             # suction side only
         chordwise_clip,
     )
 
-This guarantees constant laminate thickness everywhere along the cap and
-removes any flat-face artefact from the old box-clipping approach.
+``shell(offset(inner_skin, cap_h/2), cap_h)`` was wrong: it places the band
+where ``0 < inner_skin < cap_h`` (outboard of the inner mold). The slab
+``max(inner_skin, -inner_skin - cap_h)`` keeps the laminate between the inner
+mold (``inner_skin=0``) and ``inner_skin=-cap_h`` into the cavity.
 
 Web alignment
 -------------
@@ -60,6 +62,72 @@ def _chordwise_clip(x_start, x_end):
     return _clip
 
 
+def _parallel_web_strip_clip(nx, ny, c_a, c_b):
+    """Strip between two parallel lines n·p=c_a and n·p=c_b (same convention as chord clip).
+
+    Use for spar caps / cores when shear webs are **flapwise**-aligned: boundaries
+    must be parallel to the web direction, not chord-vertical (constant x).
+    """
+    lo = float(min(c_a, c_b))
+    hi = float(max(c_a, c_b))
+    nx = float(nx)
+    ny = float(ny)
+
+    def _clip(x, y):
+        xa = np.asarray(x, dtype=float)
+        ya = np.asarray(y, dtype=float)
+        nd = nx * xa + ny * ya
+        return np.maximum(lo - nd, nd - hi)
+
+    return _clip
+
+
+def _parallel_web_half_lt(nx, ny, c_bound):
+    """Interior: n·p < c_bound (e.g. fore of first flapwise web)."""
+    nx = float(nx)
+    ny = float(ny)
+    c = float(c_bound)
+
+    def _clip(x, y):
+        xa = np.asarray(x, dtype=float)
+        ya = np.asarray(y, dtype=float)
+        nd = nx * xa + ny * ya
+        return nd - c
+
+    return _clip
+
+
+def _parallel_web_half_gt(nx, ny, c_bound):
+    """Interior: n·p > c_bound (e.g. aft of last flapwise web)."""
+    nx = float(nx)
+    ny = float(ny)
+    c = float(c_bound)
+
+    def _clip(x, y):
+        xa = np.asarray(x, dtype=float)
+        ya = np.asarray(y, dtype=float)
+        nd = nx * xa + ny * ya
+        return c - nd
+
+    return _clip
+
+
+def flapwise_web_normal(twist_angle_rad):
+    """Unit normal **n** (in chord frame) for lines parallel to flapwise web run.
+
+    A flapwise web is a capsule aligned with global +y after section twist ω;
+    in the chord frame its direction is **u**=(sin ω, cos ω).  Boundaries between
+    cells are perpendicular to **u**, hence **n** = (-cos ω, sin ω).
+    """
+    w = float(twist_angle_rad)
+    return -np.cos(w), np.sin(w)
+
+
+def web_station_projection(nx, ny, x_web, y_mid):
+    """Scalar n·p at a web chord station (mid-thickness point on the web axis)."""
+    return float(nx) * float(x_web) + float(ny) * float(y_mid)
+
+
 def _upper_half_plane():
     """SDF of the upper half-plane (y >= 0): phi = -y inside."""
     def _hp(x, y):
@@ -72,6 +140,24 @@ def _lower_half_plane():
     def _hp(x, y):
         return np.asarray(y, dtype=float)
     return _hp
+
+
+def _cap_laminate_slab(inner_skin, cap_height):
+    """SDF of spar-cap solid between inner mold and cavity-ward inner face.
+
+    ``inner_skin = offset(airfoil, -t/2)`` is negative in the cavity.  The cap
+    occupies ``-cap_height < inner_skin < 0``.  Using ``shell`` around a shifted
+    axis placed half the band on the wrong (positive ``inner_skin``) side.
+
+    Returns φ = max(inner_skin, -inner_skin - cap_height); inside when both < 0.
+    """
+    cap_h = float(cap_height)
+
+    def _op(x, y):
+        is_ = np.asarray(inner_skin(x, y), dtype=float)
+        return np.maximum(is_, -is_ - cap_h)
+
+    return _op
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +222,8 @@ class SparCap:
     airfoil_sdf : callable
         Outer airfoil boundary SDF.
     skin_thickness : float
-        Skin laminate thickness. Defines the inner skin reference surface.
+        Skin laminate full thickness. Inner mold line matches ``OuterSkin``:
+        offset mid-surface by ``-skin_thickness/2`` (see ``OuterSkin.inner_sdf``).
     x_start, x_end : float
         Chordwise extent of the cap.
     cap_height : float
@@ -147,7 +234,8 @@ class SparCap:
     label = "spar_cap"
 
     def __init__(self, airfoil_sdf, skin_thickness,
-                 x_start, x_end, cap_height, surface="upper"):
+                 x_start, x_end, cap_height, surface="upper",
+                 strip_clip=None):
         if surface not in ("upper", "lower"):
             raise ValueError("surface must be 'upper' or 'lower'.")
 
@@ -157,18 +245,11 @@ class SparCap:
         self.cap_height     = float(cap_height)
         self.skin_thickness = float(skin_thickness)
 
-        # Inner skin reference surface (the surface the cap outer face is flush against).
-        # offset(f, -t): phi - (-t) = phi + t → zero-level set shifts inward by t.
-        inner_skin = offset(airfoil_sdf, -skin_thickness)
+        # Inner skin reference surface (flush with OuterSkin.inner_sdf).
+        # OuterSkin uses shell(af, t) with mid-surface at phi=0 → inner face at phi = -t/2.
+        inner_skin = offset(airfoil_sdf, -skin_thickness / 2.0)
 
-        # Shell of thickness cap_height centred on the inner skin surface:
-        #   outer face: inner_skin phi = 0    (at the skin boundary)
-        #   inner face: inner_skin phi = -cap_height
-        # shell(f, t) = |f| - t/2, so the band spans [-t/2, +t/2] around f=0
-        # We want the band [0, -cap_height] → shift so band centre is at -cap_height/2
-        # i.e. use offset(inner_skin, cap_height/2) as the shell axis
-        cap_axis = offset(inner_skin, cap_height / 2.0)
-        cap_shell = shell(cap_axis, cap_height)
+        cap_lam = _cap_laminate_slab(inner_skin, cap_height)
 
         # Half-plane clip to correct surface
         if surface == "upper":
@@ -176,10 +257,12 @@ class SparCap:
         else:
             side_clip = _lower_half_plane()
 
-        # Chordwise clip
-        chord_clip = _chordwise_clip(x_start, x_end)
+        if strip_clip is not None:
+            chord_clip = strip_clip
+        else:
+            chord_clip = _chordwise_clip(x_start, x_end)
 
-        self._sdf = intersect(intersect(cap_shell, side_clip), chord_clip)
+        self._sdf = intersect(intersect(cap_lam, side_clip), chord_clip)
 
     def __call__(self, x, y):
         return self._sdf(x, y)
@@ -205,6 +288,8 @@ class ContinuousSparCap:
     ----------
     airfoil_sdf : callable
     skin_thickness : float
+        Same convention as ``SparCap`` / ``OuterSkin.inner_sdf`` (inner mold at
+        ``offset(airfoil, -skin_thickness/2)``).
     x_start, x_end : float
         Chordwise extent (typically x_webs[0] to x_webs[-1]).
     cap_height : float
@@ -212,14 +297,17 @@ class ContinuousSparCap:
     surface : {'upper', 'lower'}
     twist_angle : float, optional
         Section twist in radians.  If non-zero the cap SDF is rotated by
-        this angle so the cap stays aligned with the structural frame.
+        this angle about the chordwise midpoint of ``[x_start, x_end]``.
+        ``MultiCellSection`` passes ``0`` here and applies one global twist to
+        all components.
     """
 
     label = "continuous_spar_cap"
 
     def __init__(self, airfoil_sdf, skin_thickness,
                  x_start, x_end, cap_height,
-                 surface="upper", twist_angle=0.0):
+                 surface="upper", twist_angle=0.0,
+                 strip_clip=None):
         if surface not in ("upper", "lower"):
             raise ValueError("surface must be 'upper' or 'lower'.")
 
@@ -230,18 +318,19 @@ class ContinuousSparCap:
         self.skin_thickness = float(skin_thickness)
         self.twist_angle    = float(twist_angle)
 
-        inner_skin = offset(airfoil_sdf, -skin_thickness)
-        cap_axis   = offset(inner_skin, cap_height / 2.0)
-        cap_shell  = shell(cap_axis, cap_height)
+        inner_skin = offset(airfoil_sdf, -skin_thickness / 2.0)
+        cap_lam    = _cap_laminate_slab(inner_skin, cap_height)
 
         side_clip  = _upper_half_plane() if surface == "upper" else _lower_half_plane()
-        chord_clip = _chordwise_clip(x_start, x_end)
+        if strip_clip is not None:
+            chord_clip = strip_clip
+        else:
+            chord_clip = _chordwise_clip(x_start, x_end)
 
-        raw_sdf = intersect(intersect(cap_shell, side_clip), chord_clip)
-
-        # Apply twist rotation if needed
+        raw_sdf = intersect(intersect(cap_lam, side_clip), chord_clip)
         if abs(twist_angle) > 1e-10:
-            self._sdf = rotate_field(raw_sdf, twist_angle)
+            cx = 0.5 * (self.x_start + self.x_end)
+            self._sdf = rotate_field(raw_sdf, twist_angle, cx=cx, cy=0.0)
         else:
             self._sdf = raw_sdf
 
@@ -309,7 +398,7 @@ class ShearWeb:
         def _cap_sdf(x, y):
             return sdf_capsule(x, y, _xt, _yt, _xb, _yb, _r)
 
-        inner_af = offset(airfoil_sdf, -skin_thickness)
+        inner_af = offset(airfoil_sdf, -skin_thickness / 2.0)
         raw_sdf  = intersect(_cap_sdf, inner_af)
 
         if alignment == "flapwise" and abs(twist_angle) > 1e-10:
@@ -354,20 +443,24 @@ class SandwichCore:
     def __init__(self, airfoil_sdf, skin_thickness,
                  exclusion_sdfs=None,
                  x_start=None, x_end=None,
-                 y_min=None, y_max=None):
-        inner_af = offset(airfoil_sdf, -skin_thickness)
+                 y_min=None, y_max=None,
+                 strip_clip=None):
+        inner_af = offset(airfoil_sdf, -skin_thickness / 2.0)
         sdf = inner_af
 
         if exclusion_sdfs:
             for ex in exclusion_sdfs:
                 sdf = subtract(sdf, ex)
 
-        # Chordwise clips: SDF convention is negative INSIDE.
-        # x >= x_start: interior where x - x_start > 0 → negate for intersect
-        if x_start is not None:
-            sdf = intersect(sdf, lambda x, y, _xs=x_start: _xs - x)  # phi < 0 when x > xs
-        if x_end is not None:
-            sdf = intersect(sdf, lambda x, y, _xe=x_end: x - _xe)    # phi < 0 when x < xe
+        if strip_clip is not None:
+            sdf = intersect(sdf, strip_clip)
+        else:
+            # Chordwise clips: SDF convention is negative INSIDE.
+            # x >= x_start: interior where x - x_start > 0 → negate for intersect
+            if x_start is not None:
+                sdf = intersect(sdf, lambda x, y, _xs=x_start: _xs - x)  # phi < 0 when x > xs
+            if x_end is not None:
+                sdf = intersect(sdf, lambda x, y, _xe=x_end: x - _xe)    # phi < 0 when x < xe
         if y_min is not None:
             sdf = intersect(sdf, lambda x, y, _ym=y_min: _ym - y)
         if y_max is not None:
@@ -412,7 +505,7 @@ class TEInsert:
         self.x_start        = float(x_start)
         self.skin_thickness = float(skin_thickness)
 
-        inner_af = offset(airfoil_sdf, -skin_thickness)
+        inner_af = offset(airfoil_sdf, -skin_thickness / 2.0)
 
         # Clip to TE region: x >= x_start AND inside inner skin
         # phi < 0 inside: for x >= xs, phi = xs - x
@@ -465,7 +558,7 @@ class LEInsert:
         if radius is None:
             radius = x_end
 
-        inner_af = offset(airfoil_sdf, -skin_thickness)
+        inner_af = offset(airfoil_sdf, -skin_thickness / 2.0)
 
         # Clip: inside inner skin AND fore of x_end AND inside nose circle
         nose_circle = lambda x, y, _lx=le_x, _ly=le_y, _r=radius: \

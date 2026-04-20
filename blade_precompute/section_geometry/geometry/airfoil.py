@@ -287,6 +287,15 @@ class AirfoilSDF:
         verts = self._verts + np.array([dx, dy])
         return AirfoilSDF(verts, chord=self.chord)
 
+    def rotate(self, angle):
+        """Return a new AirfoilSDF with vertices rotated CCW by angle radians about the origin."""
+        c = np.cos(float(angle))
+        s = np.sin(float(angle))
+        v = self._verts
+        xr = c * v[:, 0] - s * v[:, 1]
+        yr = s * v[:, 0] + c * v[:, 1]
+        return AirfoilSDF(np.column_stack([xr, yr]), chord=self.chord)
+
     # ------------------------------------------------------------------
     # Representation
     # ------------------------------------------------------------------

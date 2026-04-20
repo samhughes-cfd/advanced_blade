@@ -11,7 +11,8 @@ Given N web x-positions [x_0, x_1, …, x_{N-1}]:
         [ cell_0 ][ cell_1 ]   [ cell_{N-2} ]
 
     - N ShearWeb objects (one per x-position)
-    - 1 ContinuousSparCap upper + 1 lower (spanning x_0 → x_{N-1})
+    - 1 ContinuousSparCap upper + 1 lower (chord clip x_0 … x_{N-1}, then CSG
+      subtract the web laminates so caps meet web walls flush)
     - N-1 SandwichCore objects (cell_i bounded by web_i and web_{i+1})
     - Optional TEInsert  (aft of x_{N-1})
     - Optional LEInsert  (fore of x_0)
@@ -65,10 +66,19 @@ from .subcomponents import (
     ContinuousSparCap,
     ShearWeb,
     SandwichCore,
+    SparCap,
     TEInsert,
     LEInsert,
+    _parallel_web_half_gt,
+    _parallel_web_half_lt,
+    _parallel_web_strip_clip,
+    flapwise_web_normal,
+    web_station_projection,
 )
 from ..geometry.csg import offset, subtract, intersect, union, union_all
+from ..geometry.section_axes import max_thickness_chord_x, pitch_axis_x_from_le
+from ..geometry.transforms import rotate_field
+from ..structural import parse_fixed_cap_anchor, parse_structural_family
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +90,8 @@ def _inner_y_at_x(airfoil_sdf, skin_thickness, x_query,
     """Estimate the upper and lower inner-skin y-coordinates at a given x.
 
     Uses a dense 1-D scan along y at the queried x, finding the sign change
-    of phi_inner_skin(x_query, y).
+    of phi_inner_skin(x_query, y), with phi_inner_skin = offset(airfoil, -t/2)
+    to match ``OuterSkin.inner_sdf`` (mid-surface shell model).
 
     Parameters
     ----------
@@ -98,7 +109,7 @@ def _inner_y_at_x(airfoil_sdf, skin_thickness, x_query,
     y_vals = np.linspace(y_search[0], y_search[1], n_samples)
     x_vals = np.full_like(y_vals, x_query)
 
-    phi_inner = offset(airfoil_sdf, -skin_thickness)
+    phi_inner = offset(airfoil_sdf, -skin_thickness / 2.0)
     phi_vals  = phi_inner(x_vals, y_vals)
 
     # Find sign changes (inner skin crossings)
@@ -162,6 +173,16 @@ class MultiCellSection:
         Whether to build sandwich core regions.
     y_search : tuple (y_min, y_max) or None
         y-range for web anchor auto-detection.
+    structural_family : str
+        ``A`` no caps, ``B`` single band, ``C`` discrete per web, ``D`` box (default).
+    fixed_cap_anchor : str
+        For ``B``: ``pitching`` or ``max_thickness``.
+    pitch_fraction_of_chord_from_le : float
+        For ``B`` + pitching anchor (default 1/3).
+    fixed_cap_chord_half_width : float or None
+        For ``B``; default ``0.05 * chord``.
+    discrete_cap_chord_half_width : float or None
+        For ``C``; default ``0.04 * chord``.
     """
 
     def __init__(
@@ -179,6 +200,11 @@ class MultiCellSection:
         le_radius        = None,
         core_enabled     = True,
         y_search         = None,
+        structural_family              = "D",
+        fixed_cap_anchor               = "pitching",
+        pitch_fraction_of_chord_from_le = 1.0 / 3.0,
+        fixed_cap_chord_half_width     = None,
+        discrete_cap_chord_half_width  = None,
     ):
         # ------------------------------------------------------------------
         # Normalise inputs
@@ -213,13 +239,44 @@ class MultiCellSection:
         self._af          = airfoil_sdf
         self._skin_t      = float(skin_thickness)
         self._twist       = float(twist_angle)
+        self._structural_family = parse_structural_family(structural_family)
+        if self._structural_family in ("B", "C"):
+            from ..geometry.airfoil import AirfoilSDF as _AirfoilSDF
+
+            if not isinstance(airfoil_sdf, _AirfoilSDF):
+                raise TypeError(
+                    "structural_family 'B' or 'C' requires airfoil_sdf to be "
+                    "AirfoilSDF (pitching / max-thickness anchors)."
+                )
+
         self._components  = {}   # label → callable
+
+        _chord = float(getattr(airfoil_sdf, "chord", 1.0))
+        _f_anchor = (
+            parse_fixed_cap_anchor(fixed_cap_anchor)
+            if self._structural_family == "B"
+            else None
+        )
+        _pitch_fr = float(pitch_fraction_of_chord_from_le)
+        _fhw = (
+            float(fixed_cap_chord_half_width)
+            if fixed_cap_chord_half_width is not None
+            else 0.05 * _chord
+        )
+        _dhw = (
+            float(discrete_cap_chord_half_width)
+            if discrete_cap_chord_half_width is not None
+            else 0.04 * _chord
+        )
 
         # ------------------------------------------------------------------
         # Outer skin
         # ------------------------------------------------------------------
         skin = OuterSkin(airfoil_sdf, skin_thickness)
         self._components["outer_skin"] = skin
+        # Mold surfaces for JSON export (same twist as components; not the shell solid).
+        skin_outer_sdf = skin.outer_sdf
+        skin_inner_sdf = skin.inner_sdf
 
         # ------------------------------------------------------------------
         # Web anchor points
@@ -235,6 +292,17 @@ class MultiCellSection:
             anchors = [(float(yt), float(yb)) for yt, yb in web_y_coords]
             if len(anchors) != N:
                 raise ValueError(f"web_y_coords must have {N} entries.")
+
+        all_flapwise = all(a == "flapwise" for a in web_alignments)
+        if all_flapwise:
+            _nx, _ny = flapwise_web_normal(float(twist_angle))
+            c_station = [
+                web_station_projection(_nx, _ny, xs[i], 0.5 * (anchors[i][0] + anchors[i][1]))
+                for i in range(N)
+            ]
+        else:
+            _nx = _ny = None
+            c_station = None
 
         # ------------------------------------------------------------------
         # Shear webs
@@ -259,61 +327,185 @@ class MultiCellSection:
             web_sdfs.append(web)
 
         # ------------------------------------------------------------------
-        # Continuous spar caps (upper + lower)
+        # Spar caps (structural family A/B/C/D)
         # ------------------------------------------------------------------
-        x_cap_start = xs[0]
-        x_cap_end   = xs[-1]
+        sf = self._structural_family
+        cap_upper = None
+        cap_lower = None
 
-        cap_upper = ContinuousSparCap(
-            airfoil_sdf    = airfoil_sdf,
-            skin_thickness = skin_thickness,
-            x_start        = x_cap_start,
-            x_end          = x_cap_end,
-            cap_height     = cap_h_upper,
-            surface        = "upper",
-            twist_angle    = float(twist_angle),
+        if sf == "D":
+            x_cap_start = xs[0]
+            x_cap_end = xs[-1]
+            cap_strip = None
+            if all_flapwise and c_station is not None:
+                cap_strip = _parallel_web_strip_clip(
+                    _nx, _ny, c_station[0], c_station[-1]
+                )
+            cap_upper = ContinuousSparCap(
+                airfoil_sdf=airfoil_sdf,
+                skin_thickness=skin_thickness,
+                x_start=x_cap_start,
+                x_end=x_cap_end,
+                cap_height=cap_h_upper,
+                surface="upper",
+                twist_angle=0.0,
+                strip_clip=cap_strip,
+            )
+            cap_lower = ContinuousSparCap(
+                airfoil_sdf=airfoil_sdf,
+                skin_thickness=skin_thickness,
+                x_start=x_cap_start,
+                x_end=x_cap_end,
+                cap_height=cap_h_lower,
+                surface="lower",
+                twist_angle=0.0,
+                strip_clip=cap_strip,
+            )
+            if web_sdfs:
+                _wu = union_all(web_sdfs)
+                cap_upper = subtract(cap_upper, _wu)
+                cap_lower = subtract(cap_lower, _wu)
+        elif sf == "B":
+            assert _f_anchor is not None
+            if _f_anchor == "pitching":
+                x_c = pitch_axis_x_from_le(airfoil_sdf, _pitch_fr)
+            else:
+                x_c = max_thickness_chord_x(airfoil_sdf)
+            x_lo = x_c - _fhw
+            x_hi = x_c + _fhw
+            strip_b = None
+            if all_flapwise and c_station is not None:
+                y_tc, y_bc = _inner_y_at_x(
+                    airfoil_sdf, skin_thickness, x_c, y_search=y_search
+                )
+                cy_c = 0.5 * (y_tc + y_bc)
+                c_lo = web_station_projection(_nx, _ny, x_lo, cy_c)
+                c_hi = web_station_projection(_nx, _ny, x_hi, cy_c)
+                strip_b = _parallel_web_strip_clip(_nx, _ny, c_lo, c_hi)
+            cap_upper = SparCap(
+                airfoil_sdf,
+                skin_thickness,
+                x_lo,
+                x_hi,
+                cap_h_upper,
+                "upper",
+                strip_clip=strip_b,
+            )
+            cap_lower = SparCap(
+                airfoil_sdf,
+                skin_thickness,
+                x_lo,
+                x_hi,
+                cap_h_lower,
+                "lower",
+                strip_clip=strip_b,
+            )
+            if web_sdfs:
+                _wu = union_all(web_sdfs)
+                cap_upper = subtract(cap_upper, _wu)
+                cap_lower = subtract(cap_lower, _wu)
+        elif sf == "C":
+            caps_u = []
+            caps_l = []
+            for i in range(N):
+                x_lo = xs[i] - _dhw
+                x_hi = xs[i] + _dhw
+                strip_c = None
+                if all_flapwise and c_station is not None:
+                    cy_i = 0.5 * (anchors[i][0] + anchors[i][1])
+                    c_lo = web_station_projection(_nx, _ny, x_lo, cy_i)
+                    c_hi = web_station_projection(_nx, _ny, x_hi, cy_i)
+                    strip_c = _parallel_web_strip_clip(_nx, _ny, c_lo, c_hi)
+                caps_u.append(
+                    SparCap(
+                        airfoil_sdf,
+                        skin_thickness,
+                        x_lo,
+                        x_hi,
+                        cap_h_upper,
+                        "upper",
+                        strip_clip=strip_c,
+                    )
+                )
+                caps_l.append(
+                    SparCap(
+                        airfoil_sdf,
+                        skin_thickness,
+                        x_lo,
+                        x_hi,
+                        cap_h_lower,
+                        "lower",
+                        strip_clip=strip_c,
+                    )
+                )
+            cap_upper = union_all(caps_u)
+            cap_lower = union_all(caps_l)
+            if web_sdfs:
+                _wu = union_all(web_sdfs)
+                cap_upper = subtract(cap_upper, _wu)
+                cap_lower = subtract(cap_lower, _wu)
+        # sf == "A": no spar caps
+
+        if sf != "A":
+            self._components["spar_cap_upper"] = cap_upper
+            self._components["spar_cap_lower"] = cap_lower
+
+        laminates_for_core = (
+            list(web_sdfs) if sf == "A" else [cap_upper, cap_lower] + web_sdfs
         )
-        cap_lower = ContinuousSparCap(
-            airfoil_sdf    = airfoil_sdf,
-            skin_thickness = skin_thickness,
-            x_start        = x_cap_start,
-            x_end          = x_cap_end,
-            cap_height     = cap_h_lower,
-            surface        = "lower",
-            twist_angle    = float(twist_angle),
-        )
-        self._components["spar_cap_upper"] = cap_upper
-        self._components["spar_cap_lower"] = cap_lower
 
         # ------------------------------------------------------------------
         # Per-cell sandwich cores
         # ------------------------------------------------------------------
         if core_enabled and N >= 2:
-            laminates = [cap_upper, cap_lower] + web_sdfs
+            laminates = laminates_for_core
             for i in range(N - 1):
-                core = SandwichCore(
-                    airfoil_sdf    = airfoil_sdf,
-                    skin_thickness = skin_thickness,
-                    exclusion_sdfs = laminates,
-                    x_start        = xs[i],
-                    x_end          = xs[i + 1],
-                )
+                if all_flapwise and c_station is not None:
+                    core_strip = _parallel_web_strip_clip(
+                        _nx, _ny, c_station[i], c_station[i + 1]
+                    )
+                    core = SandwichCore(
+                        airfoil_sdf    = airfoil_sdf,
+                        skin_thickness = skin_thickness,
+                        exclusion_sdfs = laminates,
+                        strip_clip     = core_strip,
+                    )
+                else:
+                    core = SandwichCore(
+                        airfoil_sdf    = airfoil_sdf,
+                        skin_thickness = skin_thickness,
+                        exclusion_sdfs = laminates,
+                        x_start        = xs[i],
+                        x_end          = xs[i + 1],
+                    )
                 self._components[f"core_{i}"] = core
 
         elif core_enabled and N == 1:
             # Single-web: two half-cells (fore and aft of web)
-            laminates = [cap_upper, cap_lower] + web_sdfs
+            laminates = laminates_for_core
             for i, (x_s, x_e, suffix) in enumerate([
                 (None, xs[0], "fore"),
                 (xs[0], None, "aft"),
             ]):
-                core = SandwichCore(
-                    airfoil_sdf    = airfoil_sdf,
-                    skin_thickness = skin_thickness,
-                    exclusion_sdfs = laminates,
-                    x_start        = x_s,
-                    x_end          = x_e,
-                )
+                if all_flapwise and c_station is not None:
+                    if suffix == "fore":
+                        sclip = _parallel_web_half_lt(_nx, _ny, c_station[0])
+                    else:
+                        sclip = _parallel_web_half_gt(_nx, _ny, c_station[0])
+                    core = SandwichCore(
+                        airfoil_sdf    = airfoil_sdf,
+                        skin_thickness = skin_thickness,
+                        exclusion_sdfs = laminates,
+                        strip_clip     = sclip,
+                    )
+                else:
+                    core = SandwichCore(
+                        airfoil_sdf    = airfoil_sdf,
+                        skin_thickness = skin_thickness,
+                        exclusion_sdfs = laminates,
+                        x_start        = x_s,
+                        x_end          = x_e,
+                    )
                 self._components[f"core_{suffix}"] = core
 
         # ------------------------------------------------------------------
@@ -346,6 +538,24 @@ class MultiCellSection:
             )
             self._components["le_insert"] = le
 
+        # ------------------------------------------------------------------
+        # S → B frame: rotate all components to the blade (physical) frame.
+        # Every component was built in the chord-aligned S-frame for
+        # geometric convenience.  The flapwise-aligned web SDF already has
+        # its own internal counter-rotation of -twist_angle so that after
+        # this global +twist_angle rotation it ends up vertical (flapwise)
+        # in the B-frame — the correct physical behaviour.
+        # ------------------------------------------------------------------
+        if abs(self._twist) > 1e-10:
+            skin_outer_sdf = rotate_field(skin_outer_sdf, self._twist)
+            skin_inner_sdf = rotate_field(skin_inner_sdf, self._twist)
+            self._components = {
+                lbl: rotate_field(sdf, self._twist)
+                for lbl, sdf in self._components.items()
+            }
+        self._skin_outer_boundary_sdf = skin_outer_sdf
+        self._skin_inner_boundary_sdf = skin_inner_sdf
+
     # ------------------------------------------------------------------
     # Access interface (mirrors BladeSectionGeometry)
     # ------------------------------------------------------------------
@@ -370,6 +580,11 @@ class MultiCellSection:
     @property
     def airfoil(self):
         return self._af
+
+    @property
+    def structural_family(self):
+        """Structural spar family: ``A``, ``B``, ``C``, or ``D``."""
+        return self._structural_family
 
     # ------------------------------------------------------------------
     # Evaluation
@@ -420,6 +635,7 @@ class MultiCellSection:
     def __repr__(self):
         return (
             f"MultiCellSection("
+            f"structural_family={self._structural_family!r}, "
             f"n_webs={self.n_webs}, "
             f"n_cells={self.n_cells}, "
             f"twist={np.degrees(self._twist):.1f}°, "

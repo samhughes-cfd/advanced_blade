@@ -23,6 +23,7 @@ from .csg import (
     blend,
 )
 from .airfoil import AirfoilSDF
+from .section_axes import max_thickness_chord_x, pitch_axis_x_from_le
 from .transforms import rotate_field, translate_field, scale_field, SDFFrame
 from .grid import SDFGrid
 
@@ -33,5 +34,6 @@ __all__ = [
     "union", "smooth_union", "intersect", "smooth_intersect",
     "subtract", "smooth_subtract", "offset", "shell", "blend",
     "AirfoilSDF", "SDFGrid",
+    "pitch_axis_x_from_le", "max_thickness_chord_x",
     "rotate_field", "translate_field", "scale_field", "SDFFrame",
 ]

@@ -179,6 +179,10 @@ class SandwichMaterial:
         return abd
 
     def shear_stiffness(self) -> NDArray:
+        # TODO: Face-sheet shear stiffness contribution is neglected here.
+        # For thick composite face-sheets (t_face/t_core > ~0.2), add:
+        #   F44 += face_top.shear_stiffness()[0,0] + face_bot.shear_stiffness()[0,0]
+        # Currently valid only when core dominates through-thickness shear.
         # Core dominates through-thickness shear
         F44 = self.core_G13 * self.core_thickness
         F55 = self.core_G23 * self.core_thickness

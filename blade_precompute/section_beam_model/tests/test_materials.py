@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from blade_precompute.section_beam_model.gbt import IsotropicMaterial, Lamina, LaminateMaterial
+from blade_precompute.section_beam_model.gbt.materials import SandwichMaterial
 
 def test_isotropic_abd_shape():
     mat = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
@@ -33,6 +34,19 @@ def test_laminate_abd_shape():
     mat = LaminateMaterial(plies)
     abd = mat.abd_matrix()
     assert abd.shape == (6, 6)
+
+def test_sandwich_abd_symmetry():
+    face = IsotropicMaterial(E=70e9, nu=0.33, t=0.5e-3)
+    mat = SandwichMaterial(
+        face_top=face,
+        face_bot=face,
+        core_thickness=20e-3,
+        core_G13=50e6,
+        core_G23=50e6,
+    )
+    abd = mat.abd_matrix()
+    assert np.allclose(abd, abd.T, atol=1e-6)
+
 
 def test_laminate_symmetric_layup_zero_B():
     """Symmetric [0/90]_s laminate should have zero B matrix."""

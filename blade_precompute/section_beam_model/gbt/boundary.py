@@ -66,4 +66,6 @@ class BoundaryConditions:
             i_w = base + n_dof_mode - 2
             if self.end.k_trans > 0:   K_s[i_w, i_w]             += self.end.k_trans
             if self.end.k_rot > 0:     K_s[i_w+1, i_w+1]         += self.end.k_rot
+        # Second return value (geometric spring contribution) is always zero
+        # and reserved for future elastic foundation Kg terms.
         return K_s, np.zeros_like(K_s)

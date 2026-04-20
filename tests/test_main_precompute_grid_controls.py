@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import numpy as np
 
-from main_precompute import (
+from blade_precompute.orchestration.precompute import (
     LinspaceSpec,
     PrecomputeInputs,
-    _linspace_from_spec,
-    _resample_precompute_inputs,
-    _station_indices,
+    linspace_from_spec,
+    resample_precompute_inputs,
+    station_indices,
 )
 
 
 def test_station_indices_all_and_every_k() -> None:
-    assert _station_indices(5, "all") == [0, 1, 2, 3, 4]
-    assert _station_indices(8, "every-3") == [0, 3, 6]
-    assert _station_indices(8, "root,every-3,tip") == [0, 3, 6, 7]
+    assert station_indices(5, "all") == [0, 1, 2, 3, 4]
+    assert station_indices(8, "every-3") == [0, 3, 6]
+    assert station_indices(8, "root,every-3,tip") == [0, 3, 6, 7]
 
 
 def test_geometry_resample_uses_linspace_count() -> None:
@@ -32,9 +32,8 @@ def test_geometry_resample_uses_linspace_count() -> None:
         q_z_Npm=np.array([2.0, 2.0]),
         m_x_Nmpm=np.array([3.0, 3.0]),
     )
-    z = _linspace_from_spec(LinspaceSpec(0.0, 8.0, 5))
-    out = _resample_precompute_inputs(inp, z)
+    z = linspace_from_spec(LinspaceSpec(0.0, 8.0, 5))
+    out = resample_precompute_inputs(inp, z)
     assert out.span_r_z_m.shape == (5,)
     np.testing.assert_allclose(out.span_r_z_m, np.linspace(0.0, 8.0, 5))
-    # loads table remains on its own grid
     assert out.loads_r_z_m.shape == (2,)

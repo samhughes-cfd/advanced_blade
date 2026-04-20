@@ -36,6 +36,12 @@ class BuildSpec:
     cap_height: float | tuple[float, float] = 0.012
     skin_thickness: float = 0.003
     twist_angle: float = 0.0
+    # Optional — see docs/system_type_xyz_taxonomy.md
+    structural_family: str | None = None
+    fixed_cap_anchor: str | None = None
+    pitch_fraction_of_chord_from_le: float | None = None
+    fixed_cap_chord_half_width: float | None = None
+    discrete_cap_chord_half_width: float | None = None
 
 
 @dataclass(frozen=True)

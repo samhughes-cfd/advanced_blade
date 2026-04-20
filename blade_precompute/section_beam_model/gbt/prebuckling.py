@@ -50,6 +50,13 @@ class PreBucklingAnalysis:
             Nx[i]=A11*(N/EA+ky*(mid[1]-zc)+kz*(mid[0]-yc))
         return Nx
     def shear_flow(self):
+        """Shear flow from transverse shear (strip integration).
+
+        Torsional (Bredt-Batho) shear flow for closed cells is not included.
+        This function is valid for the GBT pre-buckling state under pure
+        bending/axial load. For torque-dominated load cases, results will
+        be approximate.
+        """
         p=self._props; EIyy=p["EIyy"]; EIzz=p["EIzz"]; EIyz=p["EIyz"]
         yc=p["yc"]; zc=p["zc"]; Vy=self.loads.Vy; Vz=self.loads.Vz
         det=EIyy*EIzz-EIyz**2

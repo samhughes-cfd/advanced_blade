@@ -32,5 +32,5 @@ class SectionGeometryAnalysis:
     def export_midlines_csv(self, midline_dict, filepath: str) -> str:
         return export_midlines_csv(midline_dict, filepath)
 
-    def export_section_json(self, section_geometry, grid: SDFGrid, midline_dict, filepath: str) -> str:
-        return export_section_json(section_geometry, grid, midline_dict, filepath)
+    def export_section_json(self, section_geometry, grid: SDFGrid, midline_dict, filepath: str, **kwargs) -> str:
+        return export_section_json(section_geometry, grid, midline_dict, filepath, **kwargs)

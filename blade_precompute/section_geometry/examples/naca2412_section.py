@@ -17,9 +17,31 @@ Demonstrates:
 Run from the package root:
     python examples/naca2412_section.py
 
+For thickness-only geometry (no medial/properties sweep), see
+``geometry_from_design_vector.py``.
+
 Requirements: numpy, scipy, matplotlib, scikit-image
 Optional:     scikit-fmm  (Eikonal redistancing)
+
+Run with either::
+
+    python blade_precompute/section_geometry/examples/naca2412_section.py
+
+(from the repository root), or after ``pip install -e .`` from the repo root.
 """
+
+from pathlib import Path
+import importlib.util
+
+# When run as a script, load repo root onto sys.path so ``import blade_precompute`` works.
+_erp = Path(__file__).resolve().parent / "_ensure_repo_path.py"
+if not _erp.is_file():
+    raise RuntimeError(f"Missing helper {_erp.name}; run from the repository checkout.")
+_spec = importlib.util.spec_from_file_location("_ensure_repo_path", _erp)
+_ensure_mod = importlib.util.module_from_spec(_spec)
+assert _spec.loader is not None
+_spec.loader.exec_module(_ensure_mod)
+_ensure_mod.ensure_repo_path()
 
 import os
 import numpy as np

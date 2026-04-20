@@ -140,7 +140,8 @@ class SDFGrid:
         fig, ax = plt.subplots()
         cs = ax.contour(self.X, self.Y, phi, levels=[0.0])
         segments = []
-        for path in cs.collections[0].get_paths():
+        # Matplotlib ≥3.8: QuadContourSet exposes get_paths(); .collections was removed.
+        for path in cs.get_paths():
             v = path.vertices
             segments.append(v.copy())
         plt.close(fig)
@@ -152,7 +153,7 @@ class SDFGrid:
         fig, ax = plt.subplots()
         cs = ax.contour(self.X, self.Y, phi, levels=[level])
         segments = []
-        for path in cs.collections[0].get_paths():
+        for path in cs.get_paths():
             segments.append(path.vertices.copy())
         plt.close(fig)
         return segments

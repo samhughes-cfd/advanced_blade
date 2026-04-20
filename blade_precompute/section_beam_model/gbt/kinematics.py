@@ -33,6 +33,14 @@ class KirchhoffKinematics(KinematicModel):
         return B
 
 class MindlinKinematics(KinematicModel):
+    """Mindlin (first-order shear) kinematics for wall strips.
+
+    Note: No shear locking mitigation (reduced integration or MITC) is
+    implemented. For wall thickness-to-strip-length ratios below ~1/20,
+    shear locking will cause artificially stiff results. Use
+    KirchhoffKinematics for thin-walled blade sections.
+    """
+
     @property
     def n_dof_per_strip(self): return 10
     def membrane_bkin(self, ds):

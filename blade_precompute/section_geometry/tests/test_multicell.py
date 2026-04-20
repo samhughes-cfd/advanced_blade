@@ -48,7 +48,7 @@ class TestSparCapCurvature:
         cap_h   = 0.015
         cap     = SparCap(af, skin_t, x_start=0.20, x_end=0.50,
                           cap_height=cap_h, surface="upper")
-        inner_skin = offset(af, skin_t)
+        inner_skin = offset(af, skin_t / 2.0)
 
         # Sample points on the inner skin in the cap x-range
         x_samples = np.linspace(0.22, 0.48, 30)
@@ -69,7 +69,7 @@ class TestSparCapCurvature:
         """Cap thickness (distance from outer to inner face) should equal cap_height."""
         skin_t  = 0.003
         cap_h   = 0.015
-        inner_skin = offset(af, skin_t)
+        inner_skin = offset(af, skin_t / 2.0)
 
         # Sample points on the outer face (inner_skin ≈ 0) in the cap x-range
         x_samples = np.linspace(0.22, 0.48, 20)
@@ -86,8 +86,8 @@ class TestSparCapCurvature:
             idx    = np.argmin(np.abs(pos_vals))
             y_outer = pos_y[idx]   # y at outer cap face
 
-            # Inner cap face is at inner_skin = -cap_h → scan inward
-            y_inner_scan = np.linspace(0.0, y_outer, 500)
+            # Inner cap face is at inner_skin = -cap_h → scan from outer mold toward chord (smaller y)
+            y_inner_scan = np.linspace(y_outer, 0.0, 500)
             phi_inner    = inner_skin(np.full_like(y_inner_scan, x_q), y_inner_scan)
             # Find where phi_inner ≈ -cap_h
             target = -cap_h
@@ -102,11 +102,9 @@ class TestSparCapCurvature:
         np.testing.assert_allclose(thicknesses, cap_h, atol=0.003)
 
     def test_cap_inside_airfoil(self, af, grid):
-        """Cap interior points should be within one skin thickness of the airfoil boundary.
+        """Cap laminate lies in the cavity (airfoil interior past the inner mold).
 
-        The cap shell straddles the inner skin surface, so the outermost cap
-        points sit between the inner skin and the outer skin surface — i.e.
-        within skin_thickness of the airfoil boundary (phi_af <= skin_thickness).
+        Inner mold is at phi_af ≈ -skin_t/2; cavity points have phi_af < -skin_t/2.
         """
         skin_t = 0.003
         cap_h  = 0.015
@@ -115,12 +113,9 @@ class TestSparCapCurvature:
         phi_af  = grid.eval(af)
         cap_interior = phi_cap < 0.0
         assert cap_interior.any(), "Cap has no interior region."
-        # The cap shell spans phi_inner_skin in [0, -cap_h], which corresponds
-        # to phi_af in [-skin_t, cap_h - skin_t].  The outermost cap points sit
-        # at phi_af = cap_h - skin_t (between inner and outer skin laminates).
-        max_allowed = cap_h - skin_t + 0.002   # +grid tolerance
-        assert np.all(phi_af[cap_interior] <= max_allowed), \
-            "Some cap interior points exceed the expected outer-skin boundary."
+        mold = -skin_t / 2.0
+        assert np.all(phi_af[cap_interior] <= mold + 5e-4), \
+            "Cap interior should lie on the cavity side of the inner skin (phi_af <= -skin_t/2)."
 
 
 # ---------------------------------------------------------------------------

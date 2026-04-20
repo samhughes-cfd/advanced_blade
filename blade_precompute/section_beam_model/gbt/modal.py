@@ -169,6 +169,11 @@ def _classical_export_indices(
     w_corr: float = 1.0,
     w_tor: float = 1.0,
     threshold: float = 0.0,
+    rigid_body_rtol: float = _RIGID_BODY_RTOL,
+    distortion_rtol: float = _DISTORTION_RTOL,
+    distortion_corr_max: float = _DISTORTION_CORR_MAX,
+    torsion_score_cap: float = _TORSION_SCORE_CAP,
+    bending_corr_min: float = _BENDING_CORR_MIN,
 ) -> dict[str, int]:
     """
     Pick distinct mode indices for axial / bending_x / bending_y / torsion using
@@ -193,7 +198,7 @@ def _classical_export_indices(
     mean_tr = float(np.mean(tr)) + 1e-30
     t_norm = tr / mean_tr
 
-    s_ax = w_mem * mem - w_corr * np.maximum(cy, cz) - w_tor * np.minimum(t_norm, _TORSION_SCORE_CAP)
+    s_ax = w_mem * mem - w_corr * np.maximum(cy, cz) - w_tor * np.minimum(t_norm, torsion_score_cap)
     axial_k = int(np.argmax(s_ax))
     if threshold > 0.0 and n >= 12:
         s_sorted = np.sort(s_ax)[::-1]
@@ -234,6 +239,16 @@ def _classical_export_indices(
             by_sorted = sorted(bend_y_pool, key=lambda i: cy[i], reverse=True)
             top_by = by_sorted[: max(5, min(8, len(by_sorted)))]
             bend_y_k = int(top_by[int(np.argmin(result.eigenvalues[top_by]))])
+
+    if bend_y_k == bend_x_k:
+        warnings.warn(
+            "classical_export_indices: bending_y and bending_x map to the "
+            "same mode index. Section geometry may be symmetric or mode "
+            "count is too low.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     return {
         "axial": axial_k,
         "bending_x": bend_x_k,
@@ -314,7 +329,21 @@ def validate_export_classification(
     return checks
 
 
-def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int, **idx_kw: Any) -> str:
+def _export_label_for_mode(
+    result: "ModalResult",
+    section: CrossSection,
+    k: int,
+    *,
+    w_mem: float = 2.0,
+    w_corr: float = 1.0,
+    w_tor: float = 1.0,
+    threshold: float = 0.0,
+    rigid_body_rtol: float = _RIGID_BODY_RTOL,
+    distortion_rtol: float = _DISTORTION_RTOL,
+    distortion_corr_max: float = _DISTORTION_CORR_MAX,
+    torsion_score_cap: float = _TORSION_SCORE_CAP,
+    bending_corr_min: float = _BENDING_CORR_MIN,
+) -> str:
     """
     Export label: four classical indices from :func:`_classical_export_indices`,
     short-wave ``distortion_*`` plate modes, or generic ``distortion_*`` for others.
@@ -323,11 +352,23 @@ def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int,
     pos = result.eigenvalues[result.eigenvalues > 1e-12] if ref is None else ref[ref > 1e-12]
     lam = float(result.eigenvalues[k])
     lam_max = float(np.max(pos)) if len(pos) else lam
-    if lam < _RIGID_BODY_RTOL * max(lam_max, 1.0):
+    if lam < rigid_body_rtol * max(lam_max, 1.0):
         return "rigid_body"
 
     ndpn = result.n_dof // max(section.n_nodes, 1)
-    picks = _classical_export_indices(result, section, **idx_kw)
+    picks = _classical_export_indices(
+        result,
+        section,
+        w_mem=w_mem,
+        w_corr=w_corr,
+        w_tor=w_tor,
+        threshold=threshold,
+        rigid_body_rtol=rigid_body_rtol,
+        distortion_rtol=distortion_rtol,
+        distortion_corr_max=distortion_corr_max,
+        torsion_score_cap=torsion_score_cap,
+        bending_corr_min=bending_corr_min,
+    )
     inv = {v: lab for lab, v in picks.items()}
     if k in inv:
         return inv[k]
@@ -336,12 +377,16 @@ def _export_label_for_mode(result: "ModalResult", section: CrossSection, k: int,
     cy, cz = _corr_yz(phi, section, ndpn)
     tr = _mode_torsion_raw(phi, section, ndpn)
     phi_norm = float(np.linalg.norm(phi)) + 1e-30
-    if lam < _DISTORTION_RTOL * max(lam_max, 1.0) and max(cy, cz) < _DISTORTION_CORR_MAX and tr / phi_norm < 0.25:
+    if (
+        lam < distortion_rtol * max(lam_max, 1.0)
+        and max(cy, cz) < distortion_corr_max
+        and tr / phi_norm < 0.25
+    ):
         idx = sum(
             1
             for j in range(k)
-            if float(result.eigenvalues[j]) < _DISTORTION_RTOL * max(lam_max, 1.0)
-            and max(_corr_yz(result.modes[:, j], section, ndpn)) < _DISTORTION_CORR_MAX
+            if float(result.eigenvalues[j]) < distortion_rtol * max(lam_max, 1.0)
+            and max(_corr_yz(result.modes[:, j], section, ndpn)) < distortion_corr_max
             and _mode_torsion_raw(result.modes[:, j], section, ndpn)
             / (float(np.linalg.norm(result.modes[:, j])) + 1e-30)
             < 0.25

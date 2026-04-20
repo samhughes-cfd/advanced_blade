@@ -219,3 +219,11 @@ def test_classical_export_indices_distinct():
         picks = classical_export_indices(full, sec)
         vals = list(picks.values())
         assert len(vals) == len(set(vals))
+
+
+def test_bending_mode_disambiguation_warns():
+    """With only three modes, bending_y may fall back to bending_x; expect a user warning."""
+    sec = make_box_section()
+    full = CrossSectionModalAnalysis(sec, SectionLoads(N=-1.0)).run(n_modes=3)
+    with pytest.warns(UserWarning, match="same mode index"):
+        classical_export_indices(full, sec)
