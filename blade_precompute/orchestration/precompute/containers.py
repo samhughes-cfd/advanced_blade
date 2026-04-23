@@ -54,7 +54,7 @@ class SectionPropertiesOutputs:
     png_paths: list[Path]
     section_results: tuple[object, ...]
     section_definitions: tuple[object, ...]
-    #: Local orthotropic skin/stringer panel screening (``section_properties``), not GBT ``section_beam_model``.
+    #: Local orthotropic skin/stringer panel screening (``section_properties``), not GBT ``examples/section_beam_model``.
     panel_local_buckling_json: Path | None = None
 
     def visualise(self, mode: str = "default") -> None:

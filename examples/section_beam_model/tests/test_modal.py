@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from blade_precompute.section_beam_model.gbt import (
+from section_beam_model.gbt import (
     CrossSection,
     CrossSectionModalAnalysis,
     DEFAULT_BEAM_EXPORT_MODE_LABELS,
@@ -17,8 +17,8 @@ from blade_precompute.section_beam_model.gbt import (
     select_modes,
     validate_export_classification,
 )
-from blade_precompute.section_beam_model.gbt.prebuckling import PreBucklingAnalysis
-from blade_precompute.section_beam_model.gbt.section_stiffness_export import (
+from section_beam_model.gbt.prebuckling import PreBucklingAnalysis
+from section_beam_model.gbt.section_stiffness_export import (
     gbt_to_beam_stiffness,
     gbt_to_k7,
     section_stiffness_to_k6,

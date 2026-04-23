@@ -17,7 +17,7 @@ local 2 = midsurface tangent): ``sigma_zz`` ≡ largest compressive ``σ11``, ``
 laminate thickness — a screening idealisation, not a full bending–stretching plate collapse analysis.
 
 This module is **local panel** buckling in ``section_properties``. It is intentionally separate from
-GBT **member** buckling in ``blade_precompute.section_beam_model``.
+GBT **member** buckling in ``examples/section_beam_model`` (not run from precompute).
 
 References
 ----------
@@ -72,7 +72,7 @@ class PanelBucklingSectionResult:
     n_buckled: int
 
 
-# Backward-compatible alias (distinct from GBT ``section_beam_model`` naming).
+# Backward-compatible alias (distinct from GBT ``section_beam_model`` example naming).
 SectionBucklingResult = PanelBucklingSectionResult
 
 

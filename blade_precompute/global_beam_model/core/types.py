@@ -74,6 +74,20 @@ class SectionStation:
 
 
 @dataclass(frozen=True)
+class SectionStiffness:
+    """Classical extension, bending, torsion, and shear stiffness scalars for one section [SI]."""
+
+    EA: float
+    EI_x: float
+    EI_y: float
+    GJ: float
+    GA_x: float
+    GA_y: float
+    #: Bending–bending coupling (e.g. from GBT): enters ``K6`` as ``-EIyz`` off-diagonal.
+    EIyz: float = 0.0
+
+
+@dataclass(frozen=True)
 class SectionStiffnessArray:
     """
     Tabulated classical section stiffnesses along span coordinate ``s`` [m].

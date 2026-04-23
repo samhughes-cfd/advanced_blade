@@ -13,12 +13,11 @@ Axis convention (matches :func:`section_stiffness_to_k6` with
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 
-from blade_precompute.global_beam_model.core.types import SectionStation
+from blade_precompute.global_beam_model.core.types import SectionStation, SectionStiffness
 
 from .modal import ModalResult, classical_export_indices
 from .prebuckling import SectionLoads
@@ -31,18 +30,6 @@ _WARPING_FLOOR_FACTOR: float = 1e-6
 """Lower bound on K7[6,6] — applied relative to the GJ scale of the section."""
 _COUPLING_TIE_RTOL: float = 1e-9
 """Relative tolerance for the torsion–warping coupling tie-break in gbt_to_k7."""
-
-
-@dataclass(frozen=True)
-class SectionStiffness:
-    EA: float
-    EI_x: float
-    EI_y: float
-    GJ: float
-    GA_x: float
-    GA_y: float
-    #: Bending–bending coupling from GBT: ``φ_xᵀ C φ_y`` (enters ``K6`` as ``-EIyz`` off-diagonal).
-    EIyz: float = 0.0
 
 
 def _shear_ga_from_strips(section: CrossSection) -> tuple[float, float]:

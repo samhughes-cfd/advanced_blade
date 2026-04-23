@@ -14,7 +14,7 @@ global bending mode as n_modes -> 1 (global only) and n_elem -> inf.
 """
 import numpy as np
 
-from blade_precompute.section_beam_model.gbt import (
+from section_beam_model.gbt import (
     BoundaryConditions,
     CrossSection,
     CrossSectionModalAnalysis,

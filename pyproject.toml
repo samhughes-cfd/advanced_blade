@@ -9,5 +9,10 @@ dev = ["pytest>=7.0", "rainflow>=3.0"]
 fatigue = ["rainflow>=3.0"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
+testpaths = [
+    "tests",
+    "blade_precompute/section_shell_model/tests",
+    "examples/section_beam_model/tests",
+    "examples/section_buckling/tests",
+]
+pythonpath = [".", "examples"]

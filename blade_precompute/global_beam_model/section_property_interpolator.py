@@ -8,9 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.interpolate import PchipInterpolator
 
-from blade_precompute.section_beam_model.gbt.section_stiffness_export import SectionStiffness
-
-from .core.types import SectionStiffnessArray
+from .core.types import SectionStiffness, SectionStiffnessArray
 
 
 def section_stiffness_array_from_sequence(

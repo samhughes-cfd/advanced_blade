@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-BeamSectionStiffnessSource = Literal["section_properties", "gbt"]
+BeamSectionStiffnessSource = Literal["section_properties"]
 
 import numpy as np
 from numpy.typing import NDArray
@@ -73,7 +73,7 @@ class OptimBladeGeometry:
     run_global_beam: bool = True
     """If False, skip Tier-A global beam static solve (section-only iteration)."""
     beam_section_stiffness_source: BeamSectionStiffnessSource = "section_properties"
-    """``section_properties`` (default) or ``gbt`` for :class:`SectionStation` ``K6``/``K7``."""
+    """``section_properties`` for :class:`SectionStation` ``K6``/``K7`` (from strip section solver)."""
 
 
 @dataclass

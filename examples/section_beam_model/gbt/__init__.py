@@ -1,9 +1,11 @@
 """
 GBT — Generalised Beam Theory for mixed-material blade sections.
 
-Part of :mod:`blade_precompute.section_beam_model` (cross-section / member-axis
-stability), not spanwise :mod:`blade_precompute.global_beam_model`.
+Example package :mod:`section_beam_model` (cross-section / member-axis stability),
+not spanwise :mod:`blade_precompute.global_beam_model`.
 """
+
+from blade_precompute.global_beam_model.core.types import SectionStiffness
 
 from .materials   import IsotropicMaterial, LaminateMaterial, Lamina
 from .section     import CrossSection, WallDefinition, SectionNode, WallStrip
@@ -20,7 +22,6 @@ from .modal import (
     validate_export_classification,
 )
 from .section_stiffness_export import (
-    SectionStiffness,
     gbt_to_beam_stiffness,
     gbt_to_k7,
     section_stiffness_to_k6,

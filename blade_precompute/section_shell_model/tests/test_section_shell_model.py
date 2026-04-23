@@ -7,27 +7,29 @@ from pathlib import Path
 
 import numpy as np
 
-_EXAMPLES = Path(__file__).resolve().parent.parent.parent
+_REPO = Path(__file__).resolve().parent.parent.parent.parent
+_EXAMPLES = _REPO / "examples"
 _STRESS_ROOT = _EXAMPLES / "section_stress_model"
 
 # Insert order: last insert(0) wins first on sys.path. Put stress_model first so
 # ``lib`` is section_stress_model/lib (not section_shell_model/lib).
+sys.path.insert(0, str(_REPO))
 sys.path.insert(0, str(_EXAMPLES))
 sys.path.insert(0, str(_STRESS_ROOT))
 
 
-from section_shell_model.lib.local_clpt_shell import (  # noqa: E402
+from blade_precompute.section_shell_model.lib.local_clpt_shell import (  # noqa: E402
     default_skin_strengths_pa,
     solve_station_clpt_shell,
 )
-from section_shell_model.lib.recovery_adapter import (  # noqa: E402
+from blade_precompute.section_shell_model.lib.recovery_adapter import (  # noqa: E402
     build_load_reaction_audit,
     check_cluster_equilibrium,
     check_panel_equilibrium,
     panel_station_shell_resultants,
     run_section_with_shell_mapping,
 )
-from section_shell_model.lib.types import ShellPanelResultants  # noqa: E402
+from blade_precompute.section_shell_model.lib.types import ShellPanelResultants  # noqa: E402
 
 
 def test_shell_resultants_match_membrane_mapping():
@@ -110,14 +112,14 @@ def test_hashin_fi_golden_pure_shear_envelope():
 def test_clpt_fi_on_section_geometry_writes_png(tmp_path) -> None:
     """MVP geometry map: Hashin FI per MITC4 element on section (y,z) writes a PNG file."""
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.local_clpt_shell import (  # noqa: E402
+    from blade_precompute.section_shell_model.lib.local_clpt_shell import (  # noqa: E402
         default_skin_strengths_pa,
         sweep_panel_clpt_fi,
     )
-    from section_shell_model.lib.example_plots import (  # noqa: E402
+    from blade_precompute.section_shell_model.lib.example_plots import (  # noqa: E402
         save_clpt_fi_on_section_geometry,
     )
-    from section_shell_model.lib.recovery_adapter import (  # noqa: E402
+    from blade_precompute.section_shell_model.lib.recovery_adapter import (  # noqa: E402
         run_section_both,
     )
 
@@ -207,7 +209,7 @@ def test_run_section_with_shell_mapping_has_reference():
 
 def test_mitc4_stiffness_shape_and_symmetry():
     """20×20 stiffness must be symmetric and positive semi-definite (after BCs)."""
-    from section_shell_model.lib.mitc4_element import mitc4_stiffness  # noqa: E402
+    from blade_precompute.section_shell_model.lib.mitc4_element import mitc4_stiffness  # noqa: E402
 
     E, nu, t = 70e9, 0.33, 0.005
     G = E / (2 * (1 + nu))
@@ -233,7 +235,7 @@ def test_mitc4_stiffness_shape_and_symmetry():
 
 
 def test_mitc4_edge_resultants_uniform_membrane_matches_centroid():
-    from section_shell_model.lib.mitc4_element import (
+    from blade_precompute.section_shell_model.lib.mitc4_element import (
         mitc4_edge_resultants,
         mitc4_resultants,
     )
@@ -260,7 +262,7 @@ def test_mitc4_edge_resultants_uniform_membrane_matches_centroid():
 
 
 def test_mitc4_edge_shear_traction_integrated_uniform_field():
-    from section_shell_model.lib.mitc4_element import mitc4_edge_shear_traction_integrated
+    from blade_precompute.section_shell_model.lib.mitc4_element import mitc4_edge_shear_traction_integrated
 
     E, nu, t = 70e9, 0.33, 0.005
     A_val = E * t / (1 - nu**2)
@@ -286,7 +288,7 @@ def test_mitc4_patch_pure_Nx():
     Uniform Nx applied to a simply-supported isotropic panel → MITC4 recover
     Nx ≈ applied, Ny ≈ 0, Mx ≈ My ≈ Mxy ≈ 0 at the centre element.
     """
-    from section_shell_model.lib.panel_mitc4_model import solve_panel_mitc4  # noqa: E402
+    from blade_precompute.section_shell_model.lib.panel_mitc4_model import solve_panel_mitc4  # noqa: E402
 
     E, nu, t = 70e9, 0.33, 0.005
     G = E / (2 * (1 + nu))
@@ -340,7 +342,7 @@ def test_mitc4_patch_pure_Nx():
 def test_vlasov_shear_centre_finite():
     """compute_section_vlasov returns finite shear centre and positive I_omega_E."""
     from multi_cell_blade_section import naca_four_digit, run_section  # type: ignore[import-untyped]
-    from section_shell_model.lib.section_vlasov import compute_section_vlasov  # noqa: E402
+    from blade_precompute.section_shell_model.lib.section_vlasov import compute_section_vlasov  # noqa: E402
 
     air = naca_four_digit(m=0.0, p=0.4, t_c=0.12, n=48)
     out = run_section(air, [0.35])
@@ -356,7 +358,7 @@ def test_vlasov_shear_centre_finite():
 def test_vlasov_zero_bimoment_gives_zero_stress():
     """With B=0, warping normal stress must be identically zero."""
     from multi_cell_blade_section import naca_four_digit, run_section  # type: ignore[import-untyped]
-    from section_shell_model.lib.section_vlasov import compute_section_vlasov  # noqa: E402
+    from blade_precompute.section_shell_model.lib.section_vlasov import compute_section_vlasov  # noqa: E402
 
     air = naca_four_digit(m=0.0, p=0.4, t_c=0.12, n=48)
     panels = run_section(air, [0.35])[0]
@@ -372,8 +374,8 @@ def test_vlasov_zero_bimoment_gives_zero_stress():
 def test_mitc4_integration_no_placeholders():
     """run_section_with_mitc4_shell: all resultant provenance must be MITC4 or DERIVED."""
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell  # noqa: E402
-    from section_shell_model.lib.types import ProvenanceKind  # noqa: E402
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell  # noqa: E402
+    from blade_precompute.section_shell_model.lib.types import ProvenanceKind  # noqa: E402
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=40)
     bundle = run_section_with_mitc4_shell(
@@ -410,7 +412,7 @@ def test_vlasov_nonzero_bimoment_activates_stress():
     Scaling: sigma_omega scales linearly with B.
     """
     from multi_cell_blade_section import naca_four_digit, run_section  # type: ignore[import-untyped]
-    from section_shell_model.lib.section_vlasov import compute_section_vlasov
+    from blade_precompute.section_shell_model.lib.section_vlasov import compute_section_vlasov
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=48)
     panels = run_section(air, [0.35])[0]
@@ -434,7 +436,7 @@ def test_vlasov_nonzero_bimoment_activates_stress():
 def test_vlasov_nonzero_dBdx_activates_warping_shear():
     """dB_dx=1e3 with B=0 → q_omega non-zero on at least one skin panel."""
     from multi_cell_blade_section import naca_four_digit, run_section  # type: ignore[import-untyped]
-    from section_shell_model.lib.section_vlasov import compute_section_vlasov
+    from blade_precompute.section_shell_model.lib.section_vlasov import compute_section_vlasov
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=48)
     panels = run_section(air, [0.35])[0]
@@ -453,7 +455,7 @@ def test_mitc4_patch_bending_moment():
     Curved isotropic panel: κ = 1/R, uniform Nx → Donnell lateral load q_n = Nx*κ.
     Verify curvature coupling activates bending compared to a flat reference panel.
     """
-    from section_shell_model.lib.panel_mitc4_model import solve_panel_mitc4
+    from blade_precompute.section_shell_model.lib.panel_mitc4_model import solve_panel_mitc4
 
     E, nu, t = 70e9, 0.30, 0.002
     G = E / (2 * (1 + nu))
@@ -546,7 +548,7 @@ def _box_airfoil(n: int = 6, width: float = 1.0, height: float = 0.5) -> np.ndar
 
 def test_vlasov_batho_single_cell_box():
     """Rectangular single-cell box: n_cells==1, I_omega_E>0, omega_hat_v non-trivial."""
-    from section_shell_model.lib.section_vlasov import compute_section_vlasov
+    from blade_precompute.section_shell_model.lib.section_vlasov import compute_section_vlasov
 
     airfoil_box = _box_airfoil(n=10, width=1.0, height=0.5)
     E, t = 70e9, 2e-3
@@ -568,7 +570,7 @@ def test_vlasov_batho_single_cell_box():
 
 def test_vlasov_batho_two_cell():
     """Two-cell box (mid web at x=0.5): n_cells==2 and I_omega_E differs from single-cell."""
-    from section_shell_model.lib.section_vlasov import compute_section_vlasov
+    from blade_precompute.section_shell_model.lib.section_vlasov import compute_section_vlasov
 
     airfoil_box = _box_airfoil(n=10, width=1.0, height=0.5)
     E, t = 70e9, 2e-3
@@ -702,7 +704,7 @@ def test_equilibrium_tiered_thresholds_skin_skin_vs_skin_web():
 
 
 def test_panel_solver_returns_reaction_diagnostics():
-    from section_shell_model.lib.panel_mitc4_model import solve_panel_mitc4
+    from blade_precompute.section_shell_model.lib.panel_mitc4_model import solve_panel_mitc4
 
     E, nu, t = 70e9, 0.33, 0.005
     G = E / (2 * (1 + nu))
@@ -849,7 +851,7 @@ def test_equilibrium_strict_skin_skin_uses_tx_component():
 
 
 def test_panel_solver_legacy_bottom_clamp_mode_available():
-    from section_shell_model.lib.panel_mitc4_model import solve_panel_mitc4
+    from blade_precompute.section_shell_model.lib.panel_mitc4_model import solve_panel_mitc4
 
     E, nu, t = 70e9, 0.33, 0.005
     G = E / (2 * (1 + nu))
@@ -891,7 +893,7 @@ def test_equilibrium_topology_graph_handles_three_way_junction():
 
 def test_run_section_with_mitc4_shell_global_coupled_default():
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=40)
     bundle = run_section_with_mitc4_shell(
@@ -987,7 +989,7 @@ def test_secondary_metric_mesh_refinement_smoke():
     # The "transformed_basis" mode has bounded (not strict) reactions; convergence
     # behaviour is covered by test_secondary_residuals_non_divergent_with_mesh.
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=40)
     coarse = run_section_with_mitc4_shell(
@@ -1037,7 +1039,7 @@ def test_secondary_metric_mesh_refinement_smoke():
 
 def test_global_load_target_reconciliation_present():
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=30)
     bundle = run_section_with_mitc4_shell(
@@ -1189,7 +1191,7 @@ def test_traction_compare_90deg_junction():
 
 def test_transformed_interface_constraint_mode_available():
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=30)
     bundle = run_section_with_mitc4_shell(
@@ -1207,7 +1209,7 @@ def test_transformed_basis_rotation_identity_for_collinear_panels():
       u_s_s = 1*u_s_m + 0*w_m,  w_s = 0*u_s_m + 1*w_m.
     Verify this directly from _build_basis_transform_constraints.
     """
-    from section_shell_model.lib.global_mitc4_assembly import (  # type: ignore[import-untyped]
+    from blade_precompute.section_shell_model.lib.global_mitc4_assembly import (  # type: ignore[import-untyped]
         _build_basis_transform_constraints, _PanelGlobalMap, _dof,
         _U_S, _W, _BETA_S, _U_X, _BETA_X,
     )
@@ -1263,7 +1265,7 @@ def test_cluster_basis_constraints_rigid_translation_mapping():
     For a 90-deg junction, slave u_s and w should include cross terms from the
     cluster reference basis (non-zero coupling coefficients).
     """
-    from section_shell_model.lib.global_mitc4_assembly import (  # type: ignore[import-untyped]
+    from blade_precompute.section_shell_model.lib.global_mitc4_assembly import (  # type: ignore[import-untyped]
         _build_cluster_basis_constraints, _PanelGlobalMap, _dof, _U_S, _W
     )
 
@@ -1304,7 +1306,7 @@ def test_cluster_basis_constraints_rigid_translation_mapping():
 def test_transformed_basis_primary_reaction_green():
     """transformed_basis mode: 2-way junction primary reaction residuals must be small."""
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell, check_panel_equilibrium
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell, check_panel_equilibrium
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=40)
     bundle = run_section_with_mitc4_shell(
@@ -1354,7 +1356,7 @@ def test_airfoil_n_refinement_reduces_le_residual():
          relative to the coarser one (confirming mesh-stability, not divergence).
     """
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import (  # type: ignore[import-untyped]
+    from blade_precompute.section_shell_model.lib.recovery_adapter import (  # type: ignore[import-untyped]
         run_section_with_mitc4_shell, check_cluster_equilibrium
     )
 
@@ -1389,7 +1391,7 @@ def test_airfoil_n_refinement_reduces_le_residual():
 
 def test_merge_nose_eliminates_le_2way_cluster():
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import (  # type: ignore[import-untyped]
+    from blade_precompute.section_shell_model.lib.recovery_adapter import (  # type: ignore[import-untyped]
         run_section_with_mitc4_shell, check_cluster_equilibrium
     )
 
@@ -1418,7 +1420,7 @@ def test_merge_nose_eliminates_le_2way_cluster():
 
 def test_merge_nose_preserves_nway_t_junction_clusters():
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import (  # type: ignore[import-untyped]
+    from blade_precompute.section_shell_model.lib.recovery_adapter import (  # type: ignore[import-untyped]
         run_section_with_mitc4_shell, build_load_reaction_audit, check_cluster_equilibrium
     )
 
@@ -1439,10 +1441,10 @@ def test_merge_nose_preserves_nway_t_junction_clusters():
 
 
 def test_transformed_basis_cluster_rotation_basis_is_rank6():
-    from section_shell_model.lib.global_mitc4_assembly import (  # type: ignore[import-untyped]
+    from blade_precompute.section_shell_model.lib.global_mitc4_assembly import (  # type: ignore[import-untyped]
         _build_cluster_basis_constraints, _PanelGlobalMap, _dof, _BETA_S
     )
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
 
     class _FakePanel:
@@ -1482,7 +1484,7 @@ def test_transformed_basis_cluster_rotation_basis_is_rank6():
 
 def test_transformed_basis_bc_applied_once_per_cluster():
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=30)
     bundle = run_section_with_mitc4_shell(
@@ -1508,7 +1510,7 @@ def test_transformed_basis_bc_applied_once_per_cluster():
 
 def test_transformed_basis_load_reaction_audit_matches_fixed_dof_sum():
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=30)
     bundle = run_section_with_mitc4_shell(
@@ -1563,7 +1565,7 @@ def test_global_vs_panel_consistency_curved():
     constitutive path split (Phase C) is closed.
     """
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.04, p=0.4, t_c=0.18, n=40)
     # Run via global coupled (uses the global solve with Donnell correction).
@@ -1602,7 +1604,7 @@ def test_cluster_and_pair_share_topology():
     number of multi-panel junctions: every cluster with len>=2 should correspond
     to at least one pair in the interface list.
     """
-    from section_shell_model.lib.recovery_adapter import (
+    from blade_precompute.section_shell_model.lib.recovery_adapter import (
         _build_geometric_interfaces,
         _build_endpoint_clusters_raw,
     )
@@ -1641,7 +1643,7 @@ def test_global_force_balance_at_fixed_is_near_zero():
     double-counting and must NOT be used for acceptance.
     """
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=30)
     bundle = run_section_with_mitc4_shell(
@@ -1664,7 +1666,7 @@ def test_tiered_acceptance_applies_pair_only_to_two_way():
     cluster_size == 3, so they are excluded from 2-way-only secondary acceptance.
     Only 2-way junction pairs should have cluster_size == 2.
     """
-    from section_shell_model.lib.recovery_adapter import (
+    from blade_precompute.section_shell_model.lib.recovery_adapter import (
         _build_geometric_interfaces,
     )
     # Build a T-junction: p0:end, p1:start, p2:start all meet at (1,0).
@@ -1730,7 +1732,7 @@ def test_secondary_residuals_non_divergent_with_mesh_transformed_basis():
     convergence of the secondary residuals is a future goal tracked by Defect K.
     """
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import (
+    from blade_precompute.section_shell_model.lib.recovery_adapter import (
         check_panel_equilibrium,
         run_section_with_mitc4_shell,
     )
@@ -1767,7 +1769,7 @@ def test_cluster_traction_equilibrium_cluster_frame():
     Synthetic 3-way T-junction with tractions satisfying equilibrium in the global
     frame: cluster-sum residuals must be near zero.
     """
-    from section_shell_model.lib.recovery_adapter import check_cluster_equilibrium
+    from blade_precompute.section_shell_model.lib.recovery_adapter import check_cluster_equilibrium
 
     # Build 3 synthetic panels meeting at (0, 0):
     # panel 0: horizontal skin, from (-1, 0) to (0, 0) — tangent (1, 0)
@@ -1827,7 +1829,7 @@ def test_shared_rotated_smoke():
     and produce results with at least as many elements as 'shared' mode.
     """
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=30)
     sr_bundle = run_section_with_mitc4_shell(
@@ -1852,7 +1854,7 @@ def test_default_mode_is_transformed_basis():
     """B4: The default interface_constraint_mode in run_section_with_mitc4_shell
     must be 'transformed_basis'."""
     import inspect
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     sig = inspect.signature(run_section_with_mitc4_shell)
     default = sig.parameters["interface_constraint_mode"].default
@@ -1864,7 +1866,7 @@ def test_default_mode_is_transformed_basis():
 def test_per_panel_n_elements_mapping_api():
     """Per-panel dict/list element counts produce the expected number of results per panel."""
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
+    from blade_precompute.section_shell_model.lib.recovery_adapter import run_section_with_mitc4_shell
 
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=30)
     spars = [0.35]
@@ -1915,11 +1917,11 @@ def test_traction_penalty_reduces_cusp_residual():
        ``solve_global_coupled_mitc4`` directly must reduce the cluster Tx residual.
     """
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from section_shell_model.lib.recovery_adapter import (
+    from blade_precompute.section_shell_model.lib.recovery_adapter import (
         run_section_with_mitc4_shell,
         check_cluster_equilibrium,
     )
-    from section_shell_model.lib.global_mitc4_assembly import solve_global_coupled_mitc4
+    from blade_precompute.section_shell_model.lib.global_mitc4_assembly import solve_global_coupled_mitc4
 
     # --- Part 1 & 2: smoke + regression on NACA section ---
     air = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=40)
@@ -1962,10 +1964,6 @@ def test_traction_penalty_reduces_cusp_residual():
     # Panel 0: horizontal strip going right,  nodes (0,0)→(1,0).
     # Panel 1: 45° strip continuing up-right, nodes (1,0)→(2,1).
     # They share (1,0): Panel 0 end ↔ Panel 1 start → 45° non-collinear 2-way cluster.
-    import sys, pathlib
-    _lib_root = pathlib.Path(__file__).resolve().parents[2] / "lib"
-    sys.path.insert(0, str(_lib_root.parent.parent))  # ensure section_shell_model importable
-
     # Build minimal laminate-like objects (thin isotropic plate, E=70 GPa, nu=0.3, t=0.003 m)
     try:
         from lib.laminate_clpt import Ply as _PlyCls  # type: ignore[import-untyped]
@@ -2018,7 +2016,7 @@ def test_traction_penalty_reduces_cusp_residual():
     )
 
     def _cluster_tx(diag, pnls):
-        from section_shell_model.lib.recovery_adapter import check_cluster_equilibrium
+        from blade_precompute.section_shell_model.lib.recovery_adapter import check_cluster_equilibrium
         cl = check_cluster_equilibrium(pnls, all_panel_mitc4_diagnostics=diag)
         two_nc = [c for c in cl if c.get("n_panels", 0) == 2
                   and not c.get("cluster_collinear", True) and c.get("status") == "ok"]

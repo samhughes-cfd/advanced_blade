@@ -70,21 +70,6 @@ def design_eval_payload(ev: Any, dv: Any) -> dict[str, Any]:
     }
 
 
-def beam_section_stations_from_gbt(
-    sec: SectionPropertiesOutputs,
-    bg: Any,
-    n_beam_nodes: int,
-) -> tuple[list[Any], list[str]]:
-    from blade_precompute.orchestration.gbt_beam_stations import beam_section_stations_from_gbt
-
-    return beam_section_stations_from_gbt(
-        np.asarray(sec.station_z, dtype=np.float64),
-        sec.section_definitions,
-        bg,
-        int(n_beam_nodes),
-    )
-
-
 def resolve_buckling_member_length_m(
     mode: str,
     *,
@@ -418,11 +403,12 @@ def beam_model_impl(
     )
 
     stiffness_source = str(getattr(bg, "beam_section_stiffness_source", "section_properties")).lower()
-    gbt_reports: list[str] = []
     if stiffness_source == "gbt":
-        stations, gbt_reports = beam_section_stations_from_gbt(sec, bg, int(n_beam_nodes))
-    else:
-        stations = stations_from_arrays(np.asarray(sec.station_z, dtype=np.float64), sec.K6, sec.K7)
+        raise ValueError(
+            'beam_section_stiffness_source="gbt" is not supported in precompute. '
+            "Use examples/section_beam_model and examples/section_buckling for GBT-based workflows."
+        )
+    stations = stations_from_arrays(np.asarray(sec.station_z, dtype=np.float64), sec.K6, sec.K7)
     analysis = BeamAnalysis.from_blade_geometry(geom, int(n_beam_nodes), stations, span_axis=2)
 
     model = analysis.model
@@ -567,11 +553,7 @@ def beam_model_impl(
                 if res.section_tsai_wu_fi_ply_envelope_nodal is not None
                 else None,
             },
-            "gbt_beam_export": (
-                {"stiffness_source": "gbt", "mode_truncation_reports": gbt_reports}
-                if stiffness_source == "gbt"
-                else None
-            ),
+            "gbt_beam_export": None,
             "grid": dict(grid_meta) if grid_meta is not None else None,
             "orchestration": orchestration.job_meta(),
         },
@@ -688,171 +670,29 @@ def section_buckling_impl(
     out_stage = (out_dir / "section_buckling").resolve()
     out_stage.mkdir(parents=True, exist_ok=True)
 
-    from blade_precompute.section_optimisation.api import BladeDesignProblem
-    from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
-    from blade_precompute.section_beam_model.gbt import SectionLoads
-    from blade_precompute.section_buckling.interface.plots import plot_buckling_member_overview_grid
-    from blade_precompute.section_buckling.interface.precompute import (
-        analyze_station_buckling,
-        safe_subcomponent_filename_label,
-    )
-
-    bg = bg_override if bg_override is not None else BladeDesignProblem.load_geometry(blade_yaml)
-    dv0 = default_dv0(int(bg.z_stations.shape[0]))
-    section_defs = SectionBuilder.build(dv0, bg)
-
-    extreme_raw = BladeDesignProblem.load_extreme_loads_dat(inp.extreme_loads_path, z_geometry=None)
-    z_geom = np.asarray(bg.z_stations, dtype=np.float64).ravel()
-    z_raw = np.asarray(extreme_raw.z_stations, dtype=np.float64).ravel()
-    if z_raw.size < 2:
-        raise ValueError("ExtremeLoads must contain at least two z stations for section_buckling.")
-
-    def _interp(arr: NDArray[np.float64]) -> NDArray[np.float64]:
-        a = np.asarray(arr, dtype=np.float64).ravel()
-        return np.interp(z_geom, z_raw, a)
-
-    N = _interp(extreme_raw.N)
-    Vy = _interp(extreme_raw.Vy)
-    Vz = _interp(extreme_raw.Vz)
-    My = _interp(extreme_raw.My)
-    Mz = _interp(extreme_raw.Mz)
-    T = _interp(extreme_raw.T)
-
-    z = np.asarray([float(sd.station_z) for sd in section_defs], dtype=np.float64)
-    idx = station_indices(int(z.shape[0]), plot_station_spec)
-
-    station_json_paths: list[Path] = []
-    part_json_paths: list[Path] = []
-    png_paths: list[Path] = []
-    station_dir_paths: list[Path] = []
-
-    z_stations = np.asarray(bg.z_stations, dtype=np.float64).ravel()
-
-    for i in idx:
-        sd = section_defs[i]
-        rz = float(z[i])
-        chord_m = float(max(np.asarray(bg.chord, dtype=np.float64).ravel()[i], 1e-4))
-        L_m, L_src = resolve_buckling_member_length_m(
-            buckling_length_mode,
-            station_index=i,
-            chord_m=chord_m,
-            z_stations=z_stations,
-            override_m=buckling_member_length_m,
-        )
-        loads = SectionLoads(
-            N=float(N[i]),
-            My=float(My[i]),
-            Mz=float(Mz[i]),
-            Vy=float(Vy[i]),
-            Vz=float(Vz[i]),
-            T=float(T[i]),
-        )
-        tag = f"i{i:03d}_z{rz:.3f}"
-        st_dir = (out_stage / f"station_{tag}").resolve()
-        st_dir.mkdir(parents=True, exist_ok=True)
-        coupled_dir = (st_dir / "coupled").resolve()
-        coupled_dir.mkdir(parents=True, exist_ok=True)
-        parts_dir = (st_dir / "parts").resolve()
-        parts_dir.mkdir(parents=True, exist_ok=True)
-        station_dir_paths.append(st_dir)
-
-        payload: dict[str, Any]
-        try:
-            payload = analyze_station_buckling(
-                sd,
-                section_loads=loads,
-                member_length_m=L_m,
-                n_cross_section_modes=8,
-                n_member_modes=6,
-                n_elem=16,
-                signature_n_pts=18,
-                include_per_subcomponent=True,
-                section_modes_wireframe_png=(coupled_dir / "section_modes_wireframe.png").resolve(),
-                member_coupled_section_wireframe_png=(
-                    coupled_dir / "member_coupled_approx.png"
-                ).resolve(),
-                part_modes_wireframe_out_dir=parts_dir,
-                part_modes_wireframe_tag=tag,
-            )
-            payload["member_length_policy"] = L_src
-            payload["buckling_length_mode_requested"] = buckling_length_mode
-        except Exception as e:  # pragma: no cover
-            payload = {
-                "station_z_m": float(sd.station_z),
-                "error": f"{type(e).__name__}: {e}",
-            }
-
-        wf_list = payload.pop("_wireframe_png_paths", None)
-        if isinstance(wf_list, list):
-            for p in wf_list:
-                png_paths.append(Path(p))
-
-        parts_index: list[dict[str, Any]] = []
-        try:
-            for part in payload.get("per_subcomponent") or []:
-                safe = safe_subcomponent_filename_label(str(part.get("name", "part")))
-                part_dir = (parts_dir / safe).resolve()
-                part_dir.mkdir(parents=True, exist_ok=True)
-                pj = write_json(part_dir / "part.json", part)
-                part_json_paths.append(pj)
-                overview_p = (part_dir / "member_buckling_overview.png").resolve()
-                parts_index.append(
-                    {
-                        "subcomponent_index": part.get("subcomponent_index"),
-                        "name": part.get("name"),
-                        "role": part.get("role"),
-                        "directory": str(part_dir),
-                        "json": str(pj.resolve()),
-                        "member_overview_png": str(overview_p),
-                        "section_modes_wireframe_png": str((part_dir / "section_modes_wireframe.png").resolve()),
-                    }
-                )
-                an = part.get("analysis")
-                if isinstance(an, dict) and an.get("error") is None and an.get("member_buckling"):
-                    pscope = {"station_z_m": float(payload.get("station_z_m", sd.station_z)), **an}
-                    plot_buckling_member_overview_grid(
-                        pscope,
-                        overview_p,
-                        suptitle=f"{part.get('name', 'part')}: member buckling @ z={float(payload.get('station_z_m', sd.station_z)):.3g} m",
-                    )
-                    png_paths.append(overview_p)
-            if parts_index:
-                payload["parts_artifact_index"] = parts_index
-            if payload.get("error") is None and payload.get("member_buckling"):
-                coupled_overview = (coupled_dir / "member_buckling_overview.png").resolve()
-                plot_buckling_member_overview_grid(
-                    payload,
-                    coupled_overview,
-                    suptitle=f"Coupled section: member buckling @ z={float(payload.get('station_z_m', sd.station_z)):.3g} m",
-                )
-                png_paths.append(coupled_overview)
-        except ImportError:
-            pass
-
-        payload["output_station_directory"] = str(st_dir)
-        payload["coupled_directory"] = str(coupled_dir)
-        payload["parts_directory"] = str(parts_dir)
-        jpath = write_json(st_dir / "station.json", payload)
-        station_json_paths.append(jpath)
-
     summary_json = write_json(
         out_stage / "summary.json",
         {
-            "station_json_paths": station_json_paths,
-            "station_directories": [str(p.resolve()) for p in station_dir_paths],
-            "part_json_paths": part_json_paths,
-            "png_paths": png_paths,
-            "stations": [{"i": int(i), "station_z_m": float(z[i])} for i in idx],
+            "skipped": True,
+            "reason": (
+                "GBT section buckling is not run inside blade_precompute. "
+                "Use examples/section_buckling (bridge + plots) and examples/section_beam_model (GBT core) "
+                "with examples/ on PYTHONPATH."
+            ),
+            "plot_station_spec": plot_station_spec,
             "buckling_length_mode": buckling_length_mode,
             "grid": dict(grid_meta) if grid_meta is not None else None,
             "orchestration": orchestration.job_meta(),
-            "layout": "Per station: section_buckling/station_{tag}/station.json, coupled/*.png, parts/{sub}/part.json",
+            "station_json_paths": [],
+            "station_directories": [],
+            "part_json_paths": [],
+            "png_paths": [],
         },
     )
 
     return SectionBucklingOutputs(
-        station_json_paths=station_json_paths,
-        part_json_paths=part_json_paths,
-        png_paths=png_paths,
+        station_json_paths=[],
+        part_json_paths=[],
+        png_paths=[],
         summary_json=summary_json,
     )

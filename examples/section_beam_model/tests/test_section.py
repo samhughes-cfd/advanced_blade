@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from blade_precompute.section_beam_model.gbt import CrossSection, IsotropicMaterial, WallDefinition
+from section_beam_model.gbt import CrossSection, IsotropicMaterial, WallDefinition
 
 MAT = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
 

@@ -85,7 +85,7 @@ class SectionSolveResult:
     k_z: float = 5.0 / 6.0
     #: Populated when :class:`~blade_precompute.section_properties.api.AnalysisConfig` runs interlaminar post-processing.
     interlaminar: object | None = None
-    #: Populated when ``AnalysisConfig`` runs **local orthotropic panel** buckling (distinct from GBT ``section_beam_model``).
+    #: Populated when ``AnalysisConfig`` runs **local orthotropic panel** buckling (distinct from GBT ``examples/section_beam_model``).
     panel_buckling: object | None = None
 
 

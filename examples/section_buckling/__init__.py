@@ -1,13 +1,13 @@
 """
 section_buckling
 ================
-Thin **buckling precompute** layer: bridge ``SectionDefinition`` / extreme loads
-to GBT workflows and emit station JSON and plots.
+Example layer: bridge ``SectionDefinition`` / extreme loads to GBT workflows
+and emit station JSON and plots.
 
-Core GBT physics lives in :mod:`blade_precompute.section_beam_model`.
+Core GBT physics lives in :mod:`section_beam_model` (``examples/section_beam_model``).
 """
 
-from blade_precompute.section_buckling.interface import (
+from .interface import (
     analyze_station_buckling,
     cross_section_for_subcomponent_indices,
     line_mesh_meta,

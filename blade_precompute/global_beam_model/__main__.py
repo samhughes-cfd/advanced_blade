@@ -12,23 +12,21 @@ from blade_precompute.global_beam_model.engine.postprocess import sample_resulta
 
 
 def _gbt_model(yaml_path: Path, n_beam_nodes: int) -> bm.BeamModel:
-    """Build a BeamModel from a blade YAML using the full GBT stiffness pipeline."""
+    """Build a BeamModel from a blade YAML using tabulated synthetic section stiffnesses."""
     from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
-    from blade_precompute.orchestration.gbt_beam_stations import beam_section_stations_from_gbt
+    from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
     from blade_precompute.section_optimisation.api import BladeDesignProblem
-    from blade_precompute.section_optimisation.core.types import DesignVector
-    from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
 
     bg = BladeDesignProblem.load_geometry(yaml_path)
-    n = int(bg.z_stations.shape[0])
-    dv = DesignVector(
-        t_skin=np.full(n, 0.012, dtype=np.float64),
-        t_cap=np.full(n, 0.050, dtype=np.float64),
-        t_web=np.full(n, 0.015, dtype=np.float64),
-    )
-    section_defs = SectionBuilder.build(dv, bg)
-    z = np.array([float(sd.station_z) for sd in section_defs], dtype=np.float64)
-    stations, _ = beam_section_stations_from_gbt(z, tuple(section_defs), bg, n_beam_nodes)
+    z = np.asarray(bg.z_stations, dtype=np.float64).ravel()
+    n = int(z.shape[0])
+    K6_template = np.diag([1e8, 1e6, 1e6, 1e5, 1e6, 1e6]).astype(np.float64)
+    K7_template = np.zeros((7, 7), dtype=np.float64)
+    K7_template[:6, :6] = K6_template
+    K7_template[6, 6] = 1e4
+    K6 = np.stack([K6_template.copy() for _ in range(n)], axis=0)
+    K7 = np.stack([K7_template.copy() for _ in range(n)], axis=0)
+    stations = stations_from_arrays(z, K6, K7)
     geom = BladeGeometry(
         z_stations=np.asarray(bg.z_stations, dtype=np.float64),
         r_ref=np.asarray(bg.r_ref, dtype=np.float64),
@@ -90,7 +88,7 @@ def main() -> None:
         "--max-iter",
         type=int,
         default=70,
-        help="Newton iteration cap (default tuned for the GBT/YAML-driven case).",
+        help="Newton iteration cap (default tuned for the YAML-driven demo case).",
     )
     parser.add_argument(
         "--n-load-steps",

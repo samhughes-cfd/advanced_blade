@@ -1,77 +1,32 @@
-"""Integration tests: GBT-derived section stations and global beam solve."""
+"""Integration tests: section stations and global beam solve."""
 
 from __future__ import annotations
 
 from pathlib import Path
-import warnings
 
 import numpy as np
 import pytest
 
 from blade_precompute.global_beam_model.api import BeamAnalysis
-from blade_precompute.global_beam_model.core.types import BeamLoads, BoundaryCondition, K7Array, SolverOptions
+from blade_precompute.global_beam_model.core.types import (
+    BeamLoads,
+    BoundaryCondition,
+    K7Array,
+    SectionStiffness,
+    SolverOptions,
+)
 from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
+from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 from blade_precompute.global_beam_model.k7_interpolation import K7Interpolator
 from blade_precompute.global_beam_model.section_property_interpolator import (
     SectionPropertyInterpolator,
     section_stiffness_array_from_sequence,
 )
-from blade_precompute.orchestration.gbt_beam_stations import beam_section_stations_from_gbt
-from blade_precompute.section_beam_model.gbt import (
-    CrossSection,
-    CrossSectionModalAnalysis,
-    DEFAULT_BEAM_EXPORT_MODE_LABELS,
-    IsotropicMaterial,
-    SectionLoads,
-    WallDefinition,
-    select_modes,
-)
-from blade_precompute.section_beam_model.gbt.section_stiffness_export import (
-    SectionStiffness,
-    gbt_to_beam_stiffness,
-    gbt_to_k7,
-    section_stiffness_to_k6,
-)
 from blade_precompute.section_optimisation.api import BladeDesignProblem
-from blade_precompute.section_optimisation.core.types import DesignVector
-from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
-
-_GBT_MAT = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
-
-
-def _make_gbt_box_section(b: float = 0.06, h: float = 0.20) -> CrossSection:
-    hb, hh = 0.5 * b, 0.5 * h
-    return CrossSection(
-        [
-            WallDefinition([-hb, -hh], [hb, -hh], _GBT_MAT, n_strips=8, name="bot"),
-            WallDefinition([hb, -hh], [hb, hh], _GBT_MAT, n_strips=4, name="right"),
-            WallDefinition([hb, hh], [-hb, hh], _GBT_MAT, n_strips=8, name="top"),
-            WallDefinition([-hb, hh], [-hb, -hh], _GBT_MAT, n_strips=4, name="left"),
-        ]
-    )
-
-
-def _make_gbt_c_section() -> CrossSection:
-    return CrossSection(
-        [
-            WallDefinition([0, 0], [0, -0.1], _GBT_MAT, n_strips=4, name="web"),
-            WallDefinition([0, 0], [0.05, 0], _GBT_MAT, n_strips=2, name="top"),
-            WallDefinition([0, -0.1], [0.05, -0.1], _GBT_MAT, n_strips=2, name="bot"),
-        ]
-    )
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
-
-
-def _default_dv0(n_station: int) -> DesignVector:
-    n = int(n_station)
-    return DesignVector(
-        t_skin=np.full(n, 0.012, dtype=np.float64),
-        t_cap=np.full(n, 0.050, dtype=np.float64),
-        t_web=np.full(n, 0.015, dtype=np.float64),
-    )
 
 
 @pytest.fixture(scope="module")
@@ -83,22 +38,26 @@ def example_blade_yaml() -> Path:
 
 
 def test_section_to_global_pipeline(example_blade_yaml: Path) -> None:
+    """End-to-end beam static solve using synthetic positive-definite section stiffnesses."""
     bg = BladeDesignProblem.load_geometry(example_blade_yaml)
-    n = int(bg.z_stations.shape[0])
-    dv = _default_dv0(n)
-    section_defs = SectionBuilder.build(dv, bg)
-    z = np.asarray([float(sd.station_z) for sd in section_defs], dtype=np.float64)
-
-    stations, _reports = beam_section_stations_from_gbt(z, tuple(section_defs), bg, n_beam_nodes=12)
+    z = np.asarray(bg.z_stations, dtype=np.float64).ravel()
+    n = int(z.shape[0])
+    K6_template = np.diag([1e8, 1e6, 1e6, 1e5, 1e6, 1e6]).astype(np.float64)
+    K7_template = np.zeros((7, 7), dtype=np.float64)
+    K7_template[:6, :6] = K6_template
+    K7_template[6, 6] = 1e4
+    K6 = np.stack([K6_template.copy() for _ in range(n)], axis=0)
+    K7 = np.stack([K7_template.copy() for _ in range(n)], axis=0)
+    stations = stations_from_arrays(z, K6, K7)
 
     assert all(s.K7 is not None for s in stations)
     assert all(s.K7.shape == (7, 7) for s in stations if s.K7 is not None)
     assert all(float(s.K7[6, 6]) > 0.0 for s in stations if s.K7 is not None)
     for s in stations:
         assert s.K7 is not None
-        K7 = np.asarray(s.K7, dtype=np.float64)
-        emin = float(np.linalg.eigvalsh(0.5 * (K7 + K7.T)).min())
-        assert emin >= -1e-2 * max(float(np.max(np.diag(K7))), 1.0)
+        K7m = np.asarray(s.K7, dtype=np.float64)
+        emin = float(np.linalg.eigvalsh(0.5 * (K7m + K7m.T)).min())
+        assert emin >= -1e-2 * max(float(np.max(np.diag(K7m))), 1.0)
 
     geom = BladeGeometry(
         z_stations=np.asarray(bg.z_stations, dtype=np.float64),
@@ -194,46 +153,6 @@ def test_interpolator_monotonic_blade() -> None:
     assert np.all(np.diff(ei_q) <= 1e-6)
 
 
-def _gbt_box_stiffness_k6_k7() -> tuple[np.ndarray, np.ndarray]:
-    sec = _make_gbt_box_section()
-    loads = SectionLoads(N=-1.0)
-    full = CrossSectionModalAnalysis(sec, loads).run(n_modes=28)
-    sel = select_modes(full, mode_labels=list(DEFAULT_BEAM_EXPORT_MODE_LABELS))
-    st = gbt_to_beam_stiffness(full, sel, section=sec)
-    K6 = section_stiffness_to_k6(st)
-    K7 = gbt_to_k7(full, K6)
-    return K6, K7
-
-
-def test_gbt_to_k7_shape_and_symmetry() -> None:
-    K6, K7 = _gbt_box_stiffness_k6_k7()
-    assert K7.shape == (7, 7)
-    assert np.allclose(K7, K7.T)
-    w = np.linalg.eigvalsh(0.5 * (K7 + K7.T))
-    assert float(w.min()) >= -1e-6 * max(float(np.max(np.diag(K7))), 1.0)
-
-
-def test_gbt_to_k7_k6_block() -> None:
-    K6, K7 = _gbt_box_stiffness_k6_k7()
-    assert np.allclose(K7[:6, :6], K6)
-
-
-def test_gbt_to_k7_warping_positive() -> None:
-    _, K7 = _gbt_box_stiffness_k6_k7()
-    assert float(K7[6, 6]) > 0.0
-
-
-def test_gbt_to_k7_full_vlasov() -> None:
-    sec = _make_gbt_c_section()
-    loads = SectionLoads(N=-1.0)
-    full = CrossSectionModalAnalysis(sec, loads).run(n_modes=40)
-    sel = select_modes(full, mode_labels=list(DEFAULT_BEAM_EXPORT_MODE_LABELS))
-    st = gbt_to_beam_stiffness(full, sel, section=sec)
-    K6 = section_stiffness_to_k6(st)
-    K7 = gbt_to_k7(full, K6, full_vlasov=True)
-    assert any(abs(float(K7[i, 6])) > 0.0 for i in range(4))
-
-
 def test_eiyz_nonzero_in_k6() -> None:
     st = SectionStiffness(
         EA=1e7,
@@ -244,7 +163,15 @@ def test_eiyz_nonzero_in_k6() -> None:
         GA_y=1e6,
         EIyz=1e6,
     )
-    K6 = section_stiffness_to_k6(st)
+    alpha = 5.0 / 6.0
+    K6 = np.zeros((6, 6), dtype=np.float64)
+    K6[0, 0] = st.EA
+    K6[1, 1] = st.EI_x
+    K6[2, 2] = st.EI_y
+    K6[1, 2] = K6[2, 1] = -float(st.EIyz)
+    K6[3, 3] = max(st.GJ, 1e-12)
+    K6[4, 4] = alpha * max(st.GA_x, 1e-12)
+    K6[5, 5] = alpha * max(st.GA_y, 1e-12)
     assert K6[1, 2] == K6[2, 1] == pytest.approx(-1e6)
 
 
@@ -260,14 +187,3 @@ def test_eiyz_survives_interpolation() -> None:
     out = ip.interpolate(np.array([0.5], dtype=np.float64))
     e = float(np.asarray(out.EIyz, dtype=np.float64).ravel()[0])
     assert 0.0 < e < 1e6
-
-
-def test_gbt_to_beam_stiffness_loads_deprecated() -> None:
-    sec = _make_gbt_box_section()
-    loads = SectionLoads(N=-1.0)
-    full = CrossSectionModalAnalysis(sec, loads).run(n_modes=28)
-    sel = select_modes(full, mode_labels=list(DEFAULT_BEAM_EXPORT_MODE_LABELS))
-    with warnings.catch_warnings(record=True) as rec:
-        warnings.simplefilter("always")
-        gbt_to_beam_stiffness(full, sel, section=sec, loads=loads)
-    assert any(w.category is DeprecationWarning for w in rec)

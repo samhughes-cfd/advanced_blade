@@ -5,7 +5,8 @@ All stiffness values (EA, EIy, EIz, GJ, kAy, kAz, Kww) are polynomial fits
 chosen to approximate a generic 12 m wind/tidal blade. They are NOT derived
 from cross-section geometry or material properties.
 
-For production use, call beam_section_stations_from_gbt() instead.
+For production use, build :class:`~blade_precompute.global_beam_model.core.types.SectionStation`
+rows from ``section_properties`` outputs (``stations_from_arrays``) or from GBT in ``examples/section_beam_model``.
 """
 
 from __future__ import annotations

@@ -54,9 +54,12 @@ def load_blade_geometry(path: str | Path) -> OptimBladeGeometry:
         raise ValueError("YAML root must be a mapping.")
     run_global_beam = bool(raw.get("run_global_beam", True))
     bss = str(raw.get("beam_section_stiffness_source", "section_properties")).strip().lower()
-    if bss not in ("section_properties", "gbt"):
-        raise ValueError("beam_section_stiffness_source must be 'section_properties' or 'gbt'.")
-    beam_section_stiffness_source: BeamSectionStiffnessSource = bss  # type: ignore[assignment]
+    if bss != "section_properties":
+        raise ValueError(
+            "beam_section_stiffness_source must be 'section_properties' "
+            "(GBT-based stiffness is only in examples/section_beam_model)."
+        )
+    beam_section_stiffness_source: BeamSectionStiffnessSource = "section_properties"
     ply_lib: dict[str, Any] = dict(raw.get("ply_library", {}))
     blade = raw.get("blade")
     if not isinstance(blade, dict):

@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from blade_precompute.section_beam_model.gbt import IsotropicMaterial, Lamina, LaminateMaterial
-from blade_precompute.section_beam_model.gbt.materials import SandwichMaterial
+from section_beam_model.gbt import IsotropicMaterial, Lamina, LaminateMaterial
+from section_beam_model.gbt.materials import SandwichMaterial
 
 def test_isotropic_abd_shape():
     mat = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)

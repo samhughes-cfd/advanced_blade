@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from blade_precompute.section_beam_model.gbt import (
+from section_beam_model.gbt import (
     BoundaryConditions,
     CrossSection,
     CrossSectionModalAnalysis,

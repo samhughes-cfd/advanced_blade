@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from blade_precompute.section_beam_model.gbt import (
+from section_beam_model.gbt import (
     BoundaryConditions,
     CrossSection,
     CrossSectionModalAnalysis,
@@ -13,8 +13,8 @@ from blade_precompute.section_beam_model.gbt import (
     SectionLoads,
     WallDefinition,
 )
-from blade_precompute.section_beam_model.gbt.member import _build_stress_weighted_B
-from blade_precompute.section_beam_model.gbt.prebuckling import PreBucklingAnalysis
+from section_beam_model.gbt.member import _build_stress_weighted_B, _strip_geom_axial_for_buckling
+from section_beam_model.gbt.prebuckling import PreBucklingAnalysis
 
 MAT = IsotropicMaterial(E=210e9, nu=0.3, t=2e-3)
 
@@ -102,7 +102,17 @@ def test_w_dof_only_in_B_matrix():
             assert M_sigma[idx] == 0.0
     B = _build_stress_weighted_B(modal, sec, loads, n_modes, kin)
     Phi = modal.modes[:, :n_modes]
-    B_ref = -Phi.T @ (M_sigma[:, None] * Phi)
+    # Reference: same strip assembly as _build_stress_weighted_B (full K_sigma, not lumped diagonal).
+    M_full = np.zeros((n_dof, n_dof))
+    for i in range(sec.n_strips):
+        Nx = float(Nx_arr[i])
+        ds = float(sec.get_strip(i).length)
+        Kg_local = _strip_geom_axial_for_buckling(Nx, 0.0, 0.0, kin, ds, sec)
+        gdofs = sec.strip_global_dofs(i, ndpn)
+        for ii, gi in enumerate(gdofs):
+            for jj, gj in enumerate(gdofs):
+                M_full[gi, gj] += Kg_local[ii, jj]
+    B_ref = -(Phi.T @ M_full @ Phi)
     assert np.allclose(B, B_ref, rtol=1e-10, atol=1e-12)
 
 

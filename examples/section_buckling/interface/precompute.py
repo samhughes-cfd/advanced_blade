@@ -13,7 +13,7 @@ from blade_precompute.section_properties.engine.laminate import LaminateDefiniti
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial as SPIsotropic
 from blade_precompute.section_properties.engine.mesh import build_line_mesh
 
-from blade_precompute.section_beam_model.gbt import (
+from section_beam_model.gbt import (
     BoundaryConditions,
     CrossSection,
     CrossSectionModalAnalysis,
@@ -328,7 +328,7 @@ def analyze_station_buckling(
 
     def _try_wireframe_plots(sec: CrossSection, mod: Any, *, title_suffix: str, part_safe: str | None) -> None:
         try:
-            from blade_precompute.section_buckling.interface.plots import (
+            from .plots import (
                 plot_cross_section_mode_wireframes,
                 plot_member_coupled_section_wireframe_approx,
             )
