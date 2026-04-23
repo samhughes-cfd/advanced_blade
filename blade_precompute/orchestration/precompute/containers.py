@@ -84,6 +84,22 @@ class SectionOptimisationOutputs:
 
 
 @dataclass(frozen=True)
+class SectionShellModelOutputs:
+    """MITC4/CLPT shell diagnostics under ``section_shell_model/`` (unit resultants)."""
+
+    station_indices: list[int]
+    station_r_z_m: list[float]
+    png_paths: list[Path]
+    summary_json: Path
+    skipped: bool = False
+
+    def visualise(self, mode: str = "default") -> None:
+        from blade_precompute.orchestration.precompute.vis import SectionShellModelOutputsVis
+
+        SectionShellModelOutputsVis(self).plot(mode=mode)
+
+
+@dataclass(frozen=True)
 class LinspaceSpec:
     z_min: float
     z_max: float
@@ -141,4 +157,15 @@ class SectionOptimisationParams:
     optimization_objective: OptimizationObjective = "min_mass"
     optimizer_max_iter: int = 120
     bg_override: Any | None = None
+    grid_meta: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class SectionShellModelParams:
+    inp: PrecomputeInputs
+    out_dir: Path
+    plot_station_spec: str
+    orchestration: PrecomputeOrchestrationContext
+    n_elements_per_panel: int = 12
+    dpi: int = 150
     grid_meta: Mapping[str, Any] | None = None

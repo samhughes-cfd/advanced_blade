@@ -13,6 +13,7 @@ from blade_precompute.orchestration.precompute.containers import (
     SectionGeometryOutputs,
     SectionOptimisationOutputs,
     SectionPropertiesOutputs,
+    SectionShellModelOutputs,
 )
 
 
@@ -219,3 +220,12 @@ class SectionOptimisationOutputsVis:
 
     def plot(self, mode: str = "default") -> None:
         _display_png_paths(list(self._results.png_paths), title="section_optimisation")
+
+
+class SectionShellModelOutputsVis:
+    def __init__(self, results: SectionShellModelOutputs) -> None:
+        self._results = results
+
+    def plot(self, mode: str = "default") -> None:
+        title = "section_shell_model (skipped)" if self._results.skipped else "section_shell_model"
+        _display_png_paths(list(self._results.png_paths), title=title)

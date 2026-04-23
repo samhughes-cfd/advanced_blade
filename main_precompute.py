@@ -23,6 +23,8 @@ from blade_precompute.orchestration.precompute import (
     SectionOptimisationStage,
     SectionPropertiesParams,
     SectionPropertiesStage,
+    SectionShellModelParams,
+    SectionShellModelStage,
     build_precompute_orchestration_context,
     linspace_from_spec,
     load_inputs,
@@ -46,6 +48,7 @@ OUTPUT_BASE_DIR: Path = _REPO_ROOT / "outputs"
 N_BEAM_NODES: int = 50
 SAVE_SECTION_RECOVERY_CACHE_NPZ: bool = False
 PLOT_STATIONS: str = "root,mid,tip"
+RUN_SECTION_SHELL_MODEL: bool = True
 SYSTEM_TYPE: str = "legacy"
 COMPONENT_MATERIALS: Path | None = None
 
@@ -124,6 +127,7 @@ def main() -> int:
             "design_optimise": bool(DESIGN_OPTIMISE),
             "design_objective": design_objective,
             "design_max_iter": int(DESIGN_MAX_ITER),
+            "run_section_shell_model": bool(RUN_SECTION_SHELL_MODEL),
             "grid_config": grid_cfg,
         },
     )
@@ -138,6 +142,20 @@ def main() -> int:
         )
     )
     sg = sg_stage.execute().get_results()
+
+    if bool(RUN_SECTION_SHELL_MODEL):
+        sh_stage = SectionShellModelStage(
+            params=SectionShellModelParams(
+                inp=inp_geom,
+                out_dir=job,
+                plot_station_spec=PLOT_STATIONS,
+                orchestration=orch,
+                grid_meta={"type": "section_shell_model", "linspace": gspec},
+            )
+        )
+        sh = sh_stage.execute().get_results()
+    else:
+        sh = None
 
     sp_stage = SectionPropertiesStage(
         params=SectionPropertiesParams(
@@ -193,6 +211,7 @@ def main() -> int:
             "system_type": orch.system_type_key,
             "component_materials": orch.component_materials.to_dict(),
             "section_geometry": sg,
+            "section_shell_model": sh,
             "section_properties": sp,
             "global_beam_model": bm,
             "section_optimisation": do,

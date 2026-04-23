@@ -25,6 +25,7 @@ from blade_precompute.orchestration.precompute.containers import (
     SectionGeometryOutputs,
     SectionOptimisationOutputs,
     SectionPropertiesOutputs,
+    SectionShellModelOutputs,
 )
 from blade_precompute.orchestration.precompute.grid import station_indices
 from blade_precompute.orchestration.precompute.jsonutil import write_json
@@ -169,6 +170,92 @@ def section_geometry_impl(
         png_paths=png_paths,
         geometry_report_json_paths=geometry_report_json_paths,
     )
+
+
+def section_shell_model_impl(
+    inp: PrecomputeInputs,
+    out_dir: Path,
+    *,
+    plot_station_spec: str,
+    orchestration: PrecomputeOrchestrationContext,
+    n_elements_per_panel: int = 12,
+    dpi: int = 150,
+    grid_meta: Mapping[str, Any] | None = None,
+) -> SectionShellModelOutputs:
+    """MITC4/CLPT shell PNG bundle per plot station (unit resultants); no mesh refinement sweeps."""
+    out_stage = (out_dir / "section_shell_model").resolve()
+    out_stage.mkdir(parents=True, exist_ok=True)
+    spars = [0.35]
+    idx = station_indices(int(inp.span_r_z_m.shape[0]), plot_station_spec)
+    png_paths: list[Path] = []
+    rz_used: list[float] = []
+    try:
+        from blade_precompute.section_shell_model.job_outputs import (
+            build_airfoil_for_station,
+            write_section_shell_model_station_outputs,
+        )
+
+        for i in idx:
+            rz = float(inp.span_r_z_m[i])
+            chord = float(inp.chord_m[i])
+            airfoil = build_airfoil_for_station(
+                float(inp.naca_m[i]),
+                float(inp.naca_p[i]),
+                float(inp.naca_xx[i]),
+                chord_m=chord,
+            )
+            tag = f"i{i:03d}_rz{rz:.3f}"
+            paths = write_section_shell_model_station_outputs(
+                out_stage,
+                airfoil=airfoil,
+                spars=spars,
+                station_tag=tag,
+                n_elements_per_panel=int(n_elements_per_panel),
+                dpi=int(dpi),
+            )
+            png_paths.extend(paths)
+            rz_used.append(rz)
+        sj = write_json(
+            out_stage / "summary.json",
+            {
+                "skipped": False,
+                "stations": [{"i": int(i), "r_z_m": float(inp.span_r_z_m[i])} for i in idx],
+                "png_paths": png_paths,
+                "loads_note": (
+                    "Unit section resultants (N,Vy,Vz,My,Mz,T)=(1,...,1); not extreme-load sizing."
+                ),
+                "n_elements_per_panel": int(n_elements_per_panel),
+                "spars": spars,
+                "grid": dict(grid_meta) if grid_meta is not None else None,
+                "orchestration": orchestration.job_meta(),
+            },
+        )
+        return SectionShellModelOutputs(
+            station_indices=idx,
+            station_r_z_m=rz_used,
+            png_paths=png_paths,
+            summary_json=sj,
+            skipped=False,
+        )
+    except Exception as e:
+        sj = write_json(
+            out_stage / "summary.json",
+            {
+                "skipped": True,
+                "reason": str(e),
+                "stations": [{"i": int(i), "r_z_m": float(inp.span_r_z_m[i])} for i in idx],
+                "png_paths": [],
+                "grid": dict(grid_meta) if grid_meta is not None else None,
+                "orchestration": orchestration.job_meta(),
+            },
+        )
+        return SectionShellModelOutputs(
+            station_indices=idx,
+            station_r_z_m=[float(inp.span_r_z_m[i]) for i in idx],
+            png_paths=[],
+            summary_json=sj,
+            skipped=True,
+        )
 
 
 def section_properties_impl(

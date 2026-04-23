@@ -12,6 +12,8 @@ from blade_precompute.orchestration.precompute.containers import (
     SectionOptimisationParams,
     SectionPropertiesOutputs,
     SectionPropertiesParams,
+    SectionShellModelOutputs,
+    SectionShellModelParams,
 )
 from blade_precompute.orchestration.precompute.grid import (
     interp_series,
@@ -31,6 +33,7 @@ from blade_precompute.orchestration.precompute.stage_facade import (
     SectionGeometryStage,
     SectionOptimisationStage,
     SectionPropertiesStage,
+    SectionShellModelStage,
 )
 
 __all__ = [
@@ -49,6 +52,9 @@ __all__ = [
     "SectionPropertiesOutputs",
     "SectionPropertiesParams",
     "SectionPropertiesStage",
+    "SectionShellModelOutputs",
+    "SectionShellModelParams",
+    "SectionShellModelStage",
     "build_precompute_orchestration_context",
     "interp_series",
     "linspace_from_spec",

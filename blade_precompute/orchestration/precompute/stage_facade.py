@@ -13,12 +13,15 @@ from blade_precompute.orchestration.precompute.containers import (
     SectionOptimisationParams,
     SectionPropertiesOutputs,
     SectionPropertiesParams,
+    SectionShellModelOutputs,
+    SectionShellModelParams,
 )
 from blade_precompute.orchestration.precompute.stages import (
     beam_model_impl,
     section_geometry_impl,
     section_optimisation_impl,
     section_properties_impl,
+    section_shell_model_impl,
 )
 
 
@@ -52,6 +55,30 @@ class SectionGeometryStage(_StageBase):
         return self
 
     def get_results(self) -> SectionGeometryOutputs:
+        return super().get_results()
+
+
+class SectionShellModelStage(_StageBase):
+    def __init__(self, *, params: SectionShellModelParams) -> None:
+        super().__init__()
+        self._params = params
+
+    def execute(self) -> SectionShellModelStage:
+        if self._executed:
+            return self
+        self._results = section_shell_model_impl(
+            self._params.inp,
+            self._params.out_dir,
+            plot_station_spec=self._params.plot_station_spec,
+            orchestration=self._params.orchestration,
+            n_elements_per_panel=self._params.n_elements_per_panel,
+            dpi=self._params.dpi,
+            grid_meta=self._params.grid_meta,
+        )
+        self._executed = True
+        return self
+
+    def get_results(self) -> SectionShellModelOutputs:
         return super().get_results()
 
 
