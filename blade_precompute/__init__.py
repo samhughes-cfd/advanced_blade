@@ -3,6 +3,9 @@ blade_precompute
 ===============
 Precompute utilities for blade structural models:
 
+Default driver stage order: ``section_geometry`` → ``section_shell_model`` → ``section_properties``
+→ ``global_beam_model`` → ``section_optimisation`` (see ``main_precompute.py``).
+
 - `section_geometry`: implicit/SDF cross-section geometry (medial axis, plots)
 - `section_properties`: midsurface strip section solver (K6/K7 + recovery)
 - `section_shell_model`: MITC4/CLPT shell handoff and section recovery (moved from examples)

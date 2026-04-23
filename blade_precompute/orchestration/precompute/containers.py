@@ -112,6 +112,9 @@ class GridConfig:
     structural: LinspaceSpec
     plot_station_spec: str
     n_beam_nodes: int
+    run_section_shell_model: bool = True
+    section_shell_n_elements_per_panel: int = 12
+    section_shell_dpi: int = 150
 
 
 @dataclass(frozen=True)

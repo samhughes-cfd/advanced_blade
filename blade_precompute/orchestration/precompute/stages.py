@@ -27,6 +27,7 @@ from blade_precompute.orchestration.precompute.containers import (
     SectionPropertiesOutputs,
     SectionShellModelOutputs,
 )
+from blade_precompute.orchestration.system_layout import SystemLayoutSpec
 from blade_precompute.orchestration.precompute.grid import station_indices
 from blade_precompute.orchestration.precompute.jsonutil import write_json
 from blade_precompute.orchestration.precompute.vis import (
@@ -54,6 +55,56 @@ def default_dv0(n_station: int):
         t_skin=np.full(n, 0.012, dtype=np.float64),
         t_cap=np.full(n, 0.050, dtype=np.float64),
         t_web=np.full(n, 0.015, dtype=np.float64),
+    )
+
+
+def section_shell_spars_from_layout(layout: SystemLayoutSpec) -> list[float]:
+    """
+    Chord fractions (0–1) for thin-wall ``multi_cell_blade_section.build_section``.
+
+    Uses ``web_chord_fracs`` from the active system layout; empty when there are no webs
+    or geometry is not multicell (outer skin only).
+    """
+    if layout.n_webs == 0 or layout.geometry_mode != "multicell":
+        return []
+    fracs = layout.web_chord_fracs
+    if len(fracs) != layout.n_webs:
+        raise ValueError(
+            f"web_chord_fracs length ({len(fracs)}) must equal n_webs ({layout.n_webs}) for multicell layout."
+        )
+    return sorted(float(x) for x in fracs)
+
+
+def section_shell_model_skipped_outputs(
+    out_dir: Path,
+    *,
+    orchestration: PrecomputeOrchestrationContext,
+    reason: str,
+    grid_meta: Mapping[str, Any] | None = None,
+) -> SectionShellModelOutputs:
+    """Stage disabled: write ``section_shell_model/summary.json`` and return a typed result (no null in job summary)."""
+    out_stage = (out_dir / "section_shell_model").resolve()
+    out_stage.mkdir(parents=True, exist_ok=True)
+    sj = write_json(
+        out_stage / "summary.json",
+        {
+            "skipped": True,
+            "reason": reason,
+            "stations": [],
+            "png_paths": [],
+            "spars": [],
+            "n_elements_per_panel": None,
+            "loads_note": None,
+            "grid": dict(grid_meta) if grid_meta is not None else None,
+            "orchestration": orchestration.job_meta(),
+        },
+    )
+    return SectionShellModelOutputs(
+        station_indices=[],
+        station_r_z_m=[],
+        png_paths=[],
+        summary_json=sj,
+        skipped=True,
     )
 
 
@@ -110,6 +161,7 @@ def section_geometry_impl(
     png_paths: list[Path] = []
     geometry_report_json_paths: list[Path] = []
     rz_used: list[float] = []
+    sdf_nx, sdf_ny = 768, 330
 
     for i in idx:
         rz = float(inp.span_r_z_m[i])
@@ -119,7 +171,7 @@ def section_geometry_impl(
         twist_rad = float(np.deg2rad(inp.twist_deg[i]))
         section = build_section_view(airfoil, orchestration.layout, twist_angle_rad=twist_rad)
         airfoil_b = airfoil.rotate(twist_rad) if abs(twist_rad) > 1e-10 else airfoil
-        grid = SDFGrid.from_airfoil(airfoil_b, nx=512, ny=220)
+        grid = SDFGrid.from_airfoil(airfoil_b, nx=sdf_nx, ny=sdf_ny)
 
         tag = f"i{i:03d}_rz{rz:.3f}"
         props_json = (out_stage / f"geometry_report_{tag}.json").resolve()
@@ -159,6 +211,7 @@ def section_geometry_impl(
             "stations": [{"i": int(i), "r_z_m": float(inp.span_r_z_m[i])} for i in idx],
             "png_paths": png_paths,
             "geometry_report_json_paths": geometry_report_json_paths,
+            "sdf_grid": {"nx": sdf_nx, "ny": sdf_ny},
             "grid": dict(grid_meta) if grid_meta is not None else None,
             "orchestration": orchestration.job_meta(),
         },
@@ -185,7 +238,7 @@ def section_shell_model_impl(
     """MITC4/CLPT shell PNG bundle per plot station (unit resultants); no mesh refinement sweeps."""
     out_stage = (out_dir / "section_shell_model").resolve()
     out_stage.mkdir(parents=True, exist_ok=True)
-    spars = [0.35]
+    spars = section_shell_spars_from_layout(orchestration.layout)
     idx = station_indices(int(inp.span_r_z_m.shape[0]), plot_station_spec)
     png_paths: list[Path] = []
     rz_used: list[float] = []
@@ -245,6 +298,8 @@ def section_shell_model_impl(
                 "reason": str(e),
                 "stations": [{"i": int(i), "r_z_m": float(inp.span_r_z_m[i])} for i in idx],
                 "png_paths": [],
+                "spars": spars,
+                "n_elements_per_panel": int(n_elements_per_panel),
                 "grid": dict(grid_meta) if grid_meta is not None else None,
                 "orchestration": orchestration.job_meta(),
             },

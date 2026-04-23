@@ -14,8 +14,8 @@ class GridSpec:
     y_max: float
     z_min: float
     z_max: float
-    ny: int = 128
-    nz: int = 128
+    ny: int = 192
+    nz: int = 192
 
 
 def sample_grid(field: SDFField, grid: GridSpec) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:

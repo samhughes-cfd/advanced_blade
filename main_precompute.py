@@ -23,6 +23,7 @@ from blade_precompute.orchestration.precompute import (
     SectionOptimisationStage,
     SectionPropertiesParams,
     SectionPropertiesStage,
+    SectionShellModelOutputs,
     SectionShellModelParams,
     SectionShellModelStage,
     build_precompute_orchestration_context,
@@ -33,6 +34,7 @@ from blade_precompute.orchestration.precompute import (
     resolve_component_materials_path,
     write_json,
 )
+from blade_precompute.orchestration.precompute.stages import section_shell_model_skipped_outputs
 
 _REPO_ROOT = Path(__file__).resolve().parent
 
@@ -108,6 +110,9 @@ def main() -> int:
         structural=sspec,
         plot_station_spec=str(PLOT_STATIONS),
         n_beam_nodes=int(N_BEAM_NODES),
+        run_section_shell_model=bool(RUN_SECTION_SHELL_MODEL),
+        section_shell_n_elements_per_panel=12,
+        section_shell_dpi=150,
     )
 
     write_json(
@@ -127,7 +132,7 @@ def main() -> int:
             "design_optimise": bool(DESIGN_OPTIMISE),
             "design_objective": design_objective,
             "design_max_iter": int(DESIGN_MAX_ITER),
-            "run_section_shell_model": bool(RUN_SECTION_SHELL_MODEL),
+            "run_section_shell_model": bool(grid_cfg.run_section_shell_model),
             "grid_config": grid_cfg,
         },
     )
@@ -143,19 +148,26 @@ def main() -> int:
     )
     sg = sg_stage.execute().get_results()
 
-    if bool(RUN_SECTION_SHELL_MODEL):
+    if grid_cfg.run_section_shell_model:
         sh_stage = SectionShellModelStage(
             params=SectionShellModelParams(
                 inp=inp_geom,
                 out_dir=job,
                 plot_station_spec=PLOT_STATIONS,
                 orchestration=orch,
+                n_elements_per_panel=int(grid_cfg.section_shell_n_elements_per_panel),
+                dpi=int(grid_cfg.section_shell_dpi),
                 grid_meta={"type": "section_shell_model", "linspace": gspec},
             )
         )
-        sh = sh_stage.execute().get_results()
+        sh: SectionShellModelOutputs = sh_stage.execute().get_results()
     else:
-        sh = None
+        sh = section_shell_model_skipped_outputs(
+            job,
+            orchestration=orch,
+            reason="run_section_shell_model=false",
+            grid_meta={"type": "section_shell_model", "linspace": gspec},
+        )
 
     sp_stage = SectionPropertiesStage(
         params=SectionPropertiesParams(

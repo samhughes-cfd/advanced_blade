@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,10 +11,16 @@ import pytest
 from blade_precompute.orchestration import PrecomputeOrchestrationContext
 from blade_precompute.orchestration.component_materials import ComponentMaterialsMap
 from blade_precompute.orchestration.precompute import (
+    GridConfig,
+    LinspaceSpec,
     PrecomputeInputs,
     SectionShellModelOutputs,
     SectionShellModelParams,
     SectionShellModelStage,
+)
+from blade_precompute.orchestration.precompute.stages import (
+    section_shell_model_skipped_outputs,
+    section_shell_spars_from_layout,
 )
 from blade_precompute.orchestration.system_layout import resolve_system_type
 
@@ -80,3 +88,71 @@ def test_section_shell_model_get_results_requires_execute() -> None:
     )
     with pytest.raises(RuntimeError):
         st.get_results()
+
+
+def test_section_shell_spars_from_layout_legacy() -> None:
+    layout = resolve_system_type("legacy")
+    assert section_shell_spars_from_layout(layout) == [0.15, 0.5]
+
+
+def test_section_shell_spars_from_layout_0a_empty() -> None:
+    layout = resolve_system_type("0A")
+    assert section_shell_spars_from_layout(layout) == []
+
+
+def test_section_shell_spars_from_layout_mismatch_raises() -> None:
+    layout = replace(resolve_system_type("legacy"), web_chord_fracs=(0.15,))
+    with pytest.raises(ValueError, match="web_chord_fracs length"):
+        section_shell_spars_from_layout(layout)
+
+
+def test_section_shell_model_skipped_outputs_writes_summary(tmp_path: Path) -> None:
+    orch = _orch()
+    out = section_shell_model_skipped_outputs(
+        tmp_path,
+        orchestration=orch,
+        reason="run_section_shell_model=false",
+        grid_meta={"type": "section_shell_model"},
+    )
+    assert out.skipped
+    assert not out.png_paths
+    data = (tmp_path / "section_shell_model" / "summary.json").read_text(encoding="utf-8")
+    assert '"skipped": true' in data
+    assert "run_section_shell_model=false" in data
+
+
+def test_grid_config_section_shell_fields() -> None:
+    g = LinspaceSpec(0.0, 1.0, 3)
+    s = LinspaceSpec(0.0, 1.0, 2)
+    cfg = GridConfig(
+        geometry=g,
+        structural=s,
+        plot_station_spec="root",
+        n_beam_nodes=10,
+        run_section_shell_model=False,
+        section_shell_n_elements_per_panel=8,
+        section_shell_dpi=100,
+    )
+    assert cfg.run_section_shell_model is False
+    assert cfg.section_shell_n_elements_per_panel == 8
+    assert cfg.section_shell_dpi == 100
+
+
+def test_section_shell_model_stage_smoke_unmocked(tmp_path: Path) -> None:
+    st = SectionShellModelStage(
+        params=SectionShellModelParams(
+            inp=_dummy_inputs(),
+            out_dir=tmp_path,
+            plot_station_spec="root",
+            orchestration=_orch(),
+            n_elements_per_panel=4,
+            dpi=72,
+        )
+    )
+    r = st.execute().get_results()
+    assert not r.skipped
+    assert r.summary_json.is_file()
+    payload = json.loads(r.summary_json.read_text(encoding="utf-8"))
+    assert payload.get("skipped") is False
+    assert payload.get("spars") == [0.15, 0.5]
+    assert r.png_paths

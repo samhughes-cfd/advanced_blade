@@ -66,7 +66,7 @@ def main() -> None:
     prefix = out_dir / "section_shell_demo"
 
     airfoil = naca_four_digit(m=0.02, p=0.4, t_c=0.12, n=120)
-    spars = [0.35]
+    spars = [0.15, 0.50]
     # Default: two half-skin panels at the LE (USkin C1 + LSkin C1). Set merge_nose=True
     # in run_section_both to splice them into a single "Nose" panel for the shell handoff.
     merge_nose = False
