@@ -115,6 +115,8 @@ class GridConfig:
     run_section_shell_model: bool = True
     section_shell_n_elements_per_panel: int = 12
     section_shell_dpi: int = 150
+    enable_shell_recovery_enrichment: bool = False
+    shell_recovery_n_elements_per_panel: int = 4
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,8 @@ class BeamModelParams:
     save_section_recovery_cache_npz: bool = False
     bg_override: Any | None = None
     grid_meta: Mapping[str, Any] | None = None
+    enable_shell_recovery_enrichment: bool = False
+    shell_recovery_n_elements_per_panel: int = 4
 
 
 @dataclass(frozen=True)

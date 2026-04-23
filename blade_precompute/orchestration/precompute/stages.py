@@ -27,8 +27,8 @@ from blade_precompute.orchestration.precompute.containers import (
     SectionPropertiesOutputs,
     SectionShellModelOutputs,
 )
-from blade_precompute.orchestration.system_layout import SystemLayoutSpec
 from blade_precompute.orchestration.precompute.grid import station_indices
+from blade_precompute.orchestration.precompute.shell_spars import section_shell_spars_from_layout
 from blade_precompute.orchestration.precompute.jsonutil import write_json
 from blade_precompute.orchestration.precompute.vis import (
     plot_section_properties_station,
@@ -56,23 +56,6 @@ def default_dv0(n_station: int):
         t_cap=np.full(n, 0.050, dtype=np.float64),
         t_web=np.full(n, 0.015, dtype=np.float64),
     )
-
-
-def section_shell_spars_from_layout(layout: SystemLayoutSpec) -> list[float]:
-    """
-    Chord fractions (0–1) for thin-wall ``multi_cell_blade_section.build_section``.
-
-    Uses ``web_chord_fracs`` from the active system layout; empty when there are no webs
-    or geometry is not multicell (outer skin only).
-    """
-    if layout.n_webs == 0 or layout.geometry_mode != "multicell":
-        return []
-    fracs = layout.web_chord_fracs
-    if len(fracs) != layout.n_webs:
-        raise ValueError(
-            f"web_chord_fracs length ({len(fracs)}) must equal n_webs ({layout.n_webs}) for multicell layout."
-        )
-    return sorted(float(x) for x in fracs)
 
 
 def section_shell_model_skipped_outputs(
@@ -411,6 +394,8 @@ def beam_model_impl(
     save_section_recovery_cache_npz: bool = False,
     bg_override: Any | None = None,
     grid_meta: Mapping[str, Any] | None = None,
+    enable_shell_recovery_enrichment: bool = False,
+    shell_recovery_n_elements_per_panel: int = 4,
 ) -> BeamModelOutputs:
     out_stage = (out_dir / "global_beam_model").resolve()
     out_stage.mkdir(parents=True, exist_ok=True)
@@ -517,10 +502,29 @@ def beam_model_impl(
         except Exception as exc:
             warnings.warn(f"Section recovery cache NPZ not written: {exc}", stacklevel=1)
 
+    shell_recovery: dict[str, Any] | None = None
+    if enable_shell_recovery_enrichment:
+        layout = orchestration.layout
+        if layout.geometry_mode == "multicell" and layout.n_webs > 0:
+            try:
+                from blade_precompute.global_beam_model.engine.shell_enrichment import shell_recovery_payload
+
+                spars_shell = section_shell_spars_from_layout(layout)
+                shell_recovery = shell_recovery_payload(
+                    res,
+                    inp,
+                    np.asarray(sec.station_z, dtype=np.float64),
+                    spars_shell,
+                    n_elements_per_panel=int(shell_recovery_n_elements_per_panel),
+                )
+            except Exception as exc:
+                warnings.warn(f"Shell recovery enrichment skipped: {exc}", stacklevel=1)
+                shell_recovery = {"skipped": True, "reason": str(exc)}
+        else:
+            shell_recovery = {"skipped": True, "reason": "not_multicell_or_no_webs"}
+
     tip_disp = np.asarray(res.nodal_positions[-1] - model.X_ref[-1], dtype=np.float64)
-    result_json = write_json(
-        out_stage / "beam_result.json",
-        {
+    beam_payload: dict[str, Any] = {
             "converged": bool(res.converged),
             "n_iterations": int(res.n_iterations),
             "residual_norm": float(res.residual_norm),
@@ -601,8 +605,10 @@ def beam_model_impl(
             "gbt_beam_export": None,
             "grid": dict(grid_meta) if grid_meta is not None else None,
             "orchestration": orchestration.job_meta(),
-        },
-    )
+    }
+    if shell_recovery is not None:
+        beam_payload["shell_recovery"] = shell_recovery
+    result_json = write_json(out_stage / "beam_result.json", beam_payload)
 
     png_paths = write_beam_model_pngs(out_stage, model, res, loads)
     write_json(out_stage / "summary.json", {"result_json": result_json, "png_paths": png_paths})

@@ -124,6 +124,8 @@ class BeamModelStage(_StageBase):
             save_section_recovery_cache_npz=self._params.save_section_recovery_cache_npz,
             bg_override=self._params.bg_override,
             grid_meta=self._params.grid_meta,
+            enable_shell_recovery_enrichment=self._params.enable_shell_recovery_enrichment,
+            shell_recovery_n_elements_per_panel=self._params.shell_recovery_n_elements_per_panel,
         )
         self._executed = True
         return self

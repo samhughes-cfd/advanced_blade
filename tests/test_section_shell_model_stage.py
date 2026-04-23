@@ -18,10 +18,8 @@ from blade_precompute.orchestration.precompute import (
     SectionShellModelParams,
     SectionShellModelStage,
 )
-from blade_precompute.orchestration.precompute.stages import (
-    section_shell_model_skipped_outputs,
-    section_shell_spars_from_layout,
-)
+from blade_precompute.orchestration.precompute.shell_spars import section_shell_spars_from_layout
+from blade_precompute.orchestration.precompute.stages import section_shell_model_skipped_outputs
 from blade_precompute.orchestration.system_layout import resolve_system_type
 
 

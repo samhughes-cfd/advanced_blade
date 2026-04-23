@@ -28,6 +28,7 @@ from blade_precompute.orchestration.precompute.inputs import (
     resolve_component_materials_path,
 )
 from blade_precompute.orchestration.precompute.jsonutil import to_jsonable, write_json
+from blade_precompute.orchestration.precompute.shell_spars import section_shell_spars_from_layout
 from blade_precompute.orchestration.precompute.stage_facade import (
     BeamModelStage,
     SectionGeometryStage,
@@ -55,6 +56,7 @@ __all__ = [
     "SectionShellModelOutputs",
     "SectionShellModelParams",
     "SectionShellModelStage",
+    "section_shell_spars_from_layout",
     "build_precompute_orchestration_context",
     "interp_series",
     "linspace_from_spec",

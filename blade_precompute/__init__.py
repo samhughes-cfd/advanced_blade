@@ -8,7 +8,7 @@ Default driver stage order: ``section_geometry`` → ``section_shell_model`` →
 
 - `section_geometry`: implicit/SDF cross-section geometry (medial axis, plots)
 - `section_properties`: midsurface strip section solver (K6/K7 + recovery)
-- `section_shell_model`: MITC4/CLPT shell handoff and section recovery (moved from examples)
+- `section_shell_model`: MITC4/CLPT shell handoff and section recovery (moved from examples). Optional post-beam ``shell_recovery`` JSON (see ``global_beam_model.engine.shell_enrichment``) compares thin-wall shell FIs to beam resultants; deeper section_properties merge and shell-derived ``K6``/``K7`` are future phases.
 - `global_beam_model`: geometrically exact 3D beam with warping (7 DOF/node)
 - `section_optimisation`: blade structural sizing evaluation/optimisation (K7 pipeline)
 - `orchestration`: system-type and material-map helpers for precompute drivers

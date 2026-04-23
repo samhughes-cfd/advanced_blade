@@ -51,6 +51,9 @@ N_BEAM_NODES: int = 50
 SAVE_SECTION_RECOVERY_CACHE_NPZ: bool = False
 PLOT_STATIONS: str = "root,mid,tip"
 RUN_SECTION_SHELL_MODEL: bool = True
+# Thin-wall + MITC4 shell recovery at section_properties stations (adds shell_recovery to beam_result.json).
+ENABLE_SHELL_RECOVERY_ENRICHMENT: bool = False
+SHELL_RECOVERY_N_ELEMENTS_PER_PANEL: int = 4
 SYSTEM_TYPE: str = "legacy"
 COMPONENT_MATERIALS: Path | None = None
 
@@ -113,6 +116,8 @@ def main() -> int:
         run_section_shell_model=bool(RUN_SECTION_SHELL_MODEL),
         section_shell_n_elements_per_panel=12,
         section_shell_dpi=150,
+        enable_shell_recovery_enrichment=bool(ENABLE_SHELL_RECOVERY_ENRICHMENT),
+        shell_recovery_n_elements_per_panel=int(SHELL_RECOVERY_N_ELEMENTS_PER_PANEL),
     )
 
     write_json(
@@ -197,6 +202,8 @@ def main() -> int:
                 "structural_linspace": sspec,
                 "n_beam_nodes": int(N_BEAM_NODES),
             },
+            enable_shell_recovery_enrichment=bool(grid_cfg.enable_shell_recovery_enrichment),
+            shell_recovery_n_elements_per_panel=int(grid_cfg.shell_recovery_n_elements_per_panel),
         )
     )
     bm = bm_stage.execute().get_results()
