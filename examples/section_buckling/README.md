@@ -15,4 +15,4 @@ pytest examples/section_buckling/tests -q
 
 ## Precompute
 
-The ``section_buckling`` stage inside ``blade_precompute`` orchestration is a **stub**; it does not import this package. Use this example code directly for GBT buckling workflows.
+``blade_precompute`` orchestration does not run GBT buckling. Use this package (and ``examples/section_beam_model``) directly for GBT buckling workflows.

@@ -1,8 +1,7 @@
-"""Precompute stage implementations (geometry, properties, global beam, optimisation, optional buckling stub)."""
+"""Precompute stage implementations (geometry, properties, global beam, optimisation)."""
 
 from __future__ import annotations
 
-import dataclasses
 import sys
 import warnings
 from pathlib import Path
@@ -23,7 +22,6 @@ from blade_precompute.orchestration import (
 from blade_precompute.orchestration.precompute.containers import (
     BeamModelOutputs,
     PrecomputeInputs,
-    SectionBucklingOutputs,
     SectionGeometryOutputs,
     SectionOptimisationOutputs,
     SectionPropertiesOutputs,
@@ -70,35 +68,6 @@ def design_eval_payload(ev: Any, dv: Any) -> dict[str, Any]:
     }
 
 
-def resolve_buckling_member_length_m(
-    mode: str,
-    *,
-    station_index: int,
-    chord_m: float,
-    z_stations: NDArray[np.float64],
-    override_m: float | None,
-) -> tuple[float, str]:
-    if override_m is not None and float(override_m) > 0.0:
-        return float(override_m), "cli_override"
-    m = (mode or "chord").strip().lower()
-    if m == "chord":
-        return float(max(chord_m, 1e-4)), "chord"
-    if m == "dz_station":
-        zs = np.asarray(z_stations, dtype=np.float64).ravel()
-        n = int(zs.size)
-        if n < 2:
-            return float(max(chord_m, 1e-4)), "dz_station_fallback_chord"
-        d: float | None = None
-        if station_index + 1 < n:
-            d = abs(float(zs[station_index + 1] - zs[station_index]))
-        elif station_index > 0:
-            d = abs(float(zs[station_index] - zs[station_index - 1]))
-        else:
-            d = abs(float(zs[-1] - zs[0])) / max(n - 1, 1)
-        return float(max(d, 1e-4)), "dz_station"
-    raise ValueError(f"Unknown buckling length mode {mode!r}. Use chord or dz_station.")
-
-
 def section_geometry_impl(
     inp: PrecomputeInputs,
     out_dir: Path,
@@ -138,7 +107,7 @@ def section_geometry_impl(
 
     idx = station_indices(int(inp.span_r_z_m.shape[0]), plot_station_spec)
     png_paths: list[Path] = []
-    json_paths: list[Path] = []
+    geometry_report_json_paths: list[Path] = []
     rz_used: list[float] = []
 
     for i in idx:
@@ -152,7 +121,7 @@ def section_geometry_impl(
         grid = SDFGrid.from_airfoil(airfoil_b, nx=512, ny=220)
 
         tag = f"i{i:03d}_rz{rz:.3f}"
-        props_json = (out_stage / f"section_props_{tag}.json").resolve()
+        props_json = (out_stage / f"geometry_report_{tag}.json").resolve()
         labels = list(getattr(section, "labels", list(section)))
         job_meta = {
             **orchestration.job_meta(),
@@ -167,7 +136,7 @@ def section_geometry_impl(
         phi0 = grid.eval(section[first_label])
         assert_grid_phi_finite(phi0)
         SectionPropertiesReport(section, grid).to_json(props_json, job_meta=job_meta)
-        json_paths.append(props_json)
+        geometry_report_json_paths.append(props_json)
 
         if plot_section is not None:
             fig, _ = plot_section(section, grid, title=f"section_geometry: NACA{code}, chord={chord:.3g} @ r_z={rz:.3g} m")
@@ -188,7 +157,7 @@ def section_geometry_impl(
         {
             "stations": [{"i": int(i), "r_z_m": float(inp.span_r_z_m[i])} for i in idx],
             "png_paths": png_paths,
-            "json_paths": json_paths,
+            "geometry_report_json_paths": geometry_report_json_paths,
             "grid": dict(grid_meta) if grid_meta is not None else None,
             "orchestration": orchestration.job_meta(),
         },
@@ -198,7 +167,7 @@ def section_geometry_impl(
         station_indices=idx,
         station_r_z_m=rz_used,
         png_paths=png_paths,
-        json_paths=json_paths,
+        geometry_report_json_paths=geometry_report_json_paths,
     )
 
 
@@ -218,109 +187,36 @@ def section_properties_impl(
     from blade_precompute.section_optimisation.api import BladeDesignProblem
     from blade_precompute.section_optimisation.engine.section_builder import SectionBuilder
     from blade_precompute.section_properties.api import AnalysisConfig, SectionAnalysis
+    from blade_precompute.section_properties.core.types import SectionSolveResult
+    from blade_precompute.section_properties.io.section_solve_bundle import save_section_solve_stations_bundle
 
     bg = bg_override if bg_override is not None else BladeDesignProblem.load_geometry(blade_yaml)
     dv0 = default_dv0(int(bg.z_stations.shape[0]))
     section_defs = SectionBuilder.build(dv0, bg)
 
-    extreme_raw = BladeDesignProblem.load_extreme_loads_dat(inp.extreme_loads_path, z_geometry=None)
-    z_raw = np.asarray(extreme_raw.z_stations, dtype=np.float64).ravel()
-    if z_raw.size < 2:
-        raise ValueError(
-            "section_properties local panel buckling requires at least two z stations in extreme loads."
-        )
-
     z = np.asarray([float(sd.station_z) for sd in section_defs], dtype=np.float64)
 
-    def _interp_extreme(col: NDArray[np.float64]) -> NDArray[np.float64]:
-        return np.interp(z, z_raw, np.asarray(col, dtype=np.float64).ravel())
-
-    N = _interp_extreme(extreme_raw.N)
-    Vy = _interp_extreme(extreme_raw.Vy)
-    Vz = _interp_extreme(extreme_raw.Vz)
-    My = _interp_extreme(extreme_raw.My)
-    Mz = _interp_extreme(extreme_raw.Mz)
-    T = _interp_extreme(extreme_raw.T)
-
-    chord = np.asarray(inp.chord_m, dtype=np.float64).ravel()
-    analysis = SectionAnalysis(config=AnalysisConfig(run_panel_buckling=True, merge_tolerance=1e-6))
-    panel_a_m: list[float] = []
-    results: list[object] = []
-    for i, sd in enumerate(section_defs):
-        chord_m_i = float(chord[min(i, chord.shape[0] - 1)]) if chord.size > 0 else 1.0
-        a_i, _ = resolve_buckling_member_length_m(
-            "dz_station",
-            station_index=i,
-            chord_m=chord_m_i,
-            z_stations=z,
-            override_m=None,
-        )
-        panel_a_m.append(float(a_i))
-        f6 = np.array([N[i], My[i], Mz[i], T[i], Vy[i], Vz[i]], dtype=np.float64)
-        results.append(
-            analysis.solve(
-                sd,
-                panel_frame_spacing_m=float(a_i),
-                panel_reference_forces_6=f6,
-            )
-        )
+    analysis = SectionAnalysis(config=AnalysisConfig(run_panel_buckling=False, merge_tolerance=1e-6))
+    results: list[SectionSolveResult] = []
+    for sd in section_defs:
+        results.append(analysis.solve(sd))
 
     n = len(results)
     K6 = np.stack([np.asarray(r.K6, dtype=np.float64) for r in results], axis=0).reshape(n, 6, 6)
     K7 = np.stack([np.asarray(r.K7, dtype=np.float64) for r in results], axis=0).reshape(n, 7, 7)
 
     summary_rows = []
-    for i, (sd, r) in enumerate(zip(section_defs, results)):
-        row: dict[str, Any] = {
-            "station_z": float(sd.station_z),
-            "area": float(r.area),
-            "mass_per_length": float(r.mass_per_length),
-            "elastic_center": np.asarray(r.elastic_center, dtype=np.float64),
-            "mass_center": np.asarray(r.mass_center, dtype=np.float64),
-            "shear_center": np.asarray(r.shear_center, dtype=np.float64),
-            "panel_local_a_m": float(panel_a_m[i]),
-        }
-        pb = getattr(r, "panel_buckling", None)
-        if pb is not None:
-            row["panel_local_BI_max"] = float(pb.BI_max)
-            row["panel_local_n_buckled"] = int(pb.n_buckled)
-            row["panel_local_critical_edge"] = int(pb.critical_edge)
-        summary_rows.append(row)
-
-    panel_stations: list[dict[str, Any]] = []
-    for i, sd in enumerate(section_defs):
-        r = results[i]
-        pb = getattr(r, "panel_buckling", None)
-        f6 = np.array([N[i], My[i], Mz[i], T[i], Vy[i], Vz[i]], dtype=np.float64)
-        edge_payload: list[dict[str, Any]] | None = None
-        if pb is not None:
-            edge_payload = [dataclasses.asdict(er) for er in pb.edge_results]
-        panel_stations.append(
+    for sd, r in zip(section_defs, results):
+        summary_rows.append(
             {
                 "station_z": float(sd.station_z),
-                "panel_a_m": float(panel_a_m[i]),
-                "reference_forces_6": f6.tolist(),
-                "panel_local": None
-                if pb is None
-                else {
-                    "BI_max": float(pb.BI_max),
-                    "critical_edge": int(pb.critical_edge),
-                    "n_buckled": int(pb.n_buckled),
-                    "edges": edge_payload,
-                },
+                "area": float(r.area),
+                "mass_per_length": float(r.mass_per_length),
+                "elastic_center": np.asarray(r.elastic_center, dtype=np.float64),
+                "mass_center": np.asarray(r.mass_center, dtype=np.float64),
+                "shear_center": np.asarray(r.shear_center, dtype=np.float64),
             }
         )
-
-    panel_json_path = (out_stage / "panel_local_buckling.json").resolve()
-    write_json(
-        panel_json_path,
-        {
-            "kind": "orthogonal_skin_panel_local",
-            "distinction": "Not GBT section_beam_model member buckling.",
-            "blade_yaml": str(blade_yaml.resolve()),
-            "stations": panel_stations,
-        },
-    )
 
     summary_json = write_json(
         out_stage / "section_solve_summary.json",
@@ -341,7 +237,15 @@ def section_properties_impl(
         plot_section_properties_station(section_defs[i], results[i], out_png)
         png_paths.append(out_png)
 
-    write_json(out_stage / "summary.json", {"results_summary_json": summary_json, "png_paths": png_paths})
+    bundle_meta = save_section_solve_stations_bundle(out_stage, z, results)
+    write_json(
+        out_stage / "summary.json",
+        {
+            "results_summary_json": summary_json,
+            "png_paths": png_paths,
+            "section_solve_bundle": bundle_meta,
+        },
+    )
 
     return SectionPropertiesOutputs(
         station_z=z,
@@ -351,7 +255,6 @@ def section_properties_impl(
         png_paths=png_paths,
         section_results=tuple(results),
         section_definitions=tuple(section_defs),
-        panel_local_buckling_json=panel_json_path,
     )
 
 
@@ -653,43 +556,3 @@ def section_optimisation_impl(
 
     write_json(out_stage / "summary.json", {"result_json": result_json, "png_paths": png_paths})
     return SectionOptimisationOutputs(result_json=result_json, png_paths=png_paths)
-
-
-def section_buckling_impl(
-    inp: PrecomputeInputs,
-    out_dir: Path,
-    *,
-    blade_yaml: Path,
-    plot_station_spec: str,
-    orchestration: PrecomputeOrchestrationContext,
-    buckling_length_mode: str = "chord",
-    buckling_member_length_m: float | None = None,
-    bg_override: Any | None = None,
-    grid_meta: Mapping[str, Any] | None = None,
-) -> SectionBucklingOutputs:
-    summary_json = write_json(
-        out_dir / "section_buckling_skip.json",
-        {
-            "skipped": True,
-            "reason": (
-                "GBT section buckling is not run inside blade_precompute. "
-                "Use examples/section_buckling (bridge + plots) and examples/section_beam_model (GBT core) "
-                "with examples/ on PYTHONPATH."
-            ),
-            "plot_station_spec": plot_station_spec,
-            "buckling_length_mode": buckling_length_mode,
-            "grid": dict(grid_meta) if grid_meta is not None else None,
-            "orchestration": orchestration.job_meta(),
-            "station_json_paths": [],
-            "station_directories": [],
-            "part_json_paths": [],
-            "png_paths": [],
-        },
-    )
-
-    return SectionBucklingOutputs(
-        station_json_paths=[],
-        part_json_paths=[],
-        png_paths=[],
-        summary_json=summary_json,
-    )

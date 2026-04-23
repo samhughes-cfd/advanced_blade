@@ -10,7 +10,6 @@ from numpy.typing import NDArray
 
 from blade_precompute.orchestration.precompute.containers import (
     BeamModelOutputs,
-    SectionBucklingOutputs,
     SectionGeometryOutputs,
     SectionOptimisationOutputs,
     SectionPropertiesOutputs,
@@ -220,11 +219,3 @@ class SectionOptimisationOutputsVis:
 
     def plot(self, mode: str = "default") -> None:
         _display_png_paths(list(self._results.png_paths), title="section_optimisation")
-
-
-class SectionBucklingOutputsVis:
-    def __init__(self, results: SectionBucklingOutputs) -> None:
-        self._results = results
-
-    def plot(self, mode: str = "default") -> None:
-        _display_png_paths(list(self._results.png_paths), title="section_buckling_skip")

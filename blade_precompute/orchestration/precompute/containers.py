@@ -37,7 +37,7 @@ class SectionGeometryOutputs:
     station_indices: list[int]
     station_r_z_m: list[float]
     png_paths: list[Path]
-    json_paths: list[Path]
+    geometry_report_json_paths: list[Path]
 
     def visualise(self, mode: str = "default") -> None:
         from blade_precompute.orchestration.precompute.vis import SectionGeometryOutputsVis
@@ -54,8 +54,6 @@ class SectionPropertiesOutputs:
     png_paths: list[Path]
     section_results: tuple[object, ...]
     section_definitions: tuple[object, ...]
-    #: Local orthotropic skin/stringer panel screening (``section_properties``), not GBT ``examples/section_beam_model``.
-    panel_local_buckling_json: Path | None = None
 
     def visualise(self, mode: str = "default") -> None:
         from blade_precompute.orchestration.precompute.vis import SectionPropertiesOutputsVis
@@ -83,19 +81,6 @@ class SectionOptimisationOutputs:
         from blade_precompute.orchestration.precompute.vis import SectionOptimisationOutputsVis
 
         SectionOptimisationOutputsVis(self).plot(mode=mode)
-
-
-@dataclass(frozen=True)
-class SectionBucklingOutputs:
-    station_json_paths: list[Path]
-    part_json_paths: list[Path]
-    png_paths: list[Path]
-    summary_json: Path
-
-    def visualise(self, mode: str = "default") -> None:
-        from blade_precompute.orchestration.precompute.vis import SectionBucklingOutputsVis
-
-        SectionBucklingOutputsVis(self).plot(mode=mode)
 
 
 @dataclass(frozen=True)
@@ -155,18 +140,5 @@ class SectionOptimisationParams:
     run_blade_optimizer: bool = False
     optimization_objective: OptimizationObjective = "min_mass"
     optimizer_max_iter: int = 120
-    bg_override: Any | None = None
-    grid_meta: Mapping[str, Any] | None = None
-
-
-@dataclass(frozen=True)
-class SectionBucklingParams:
-    inp: PrecomputeInputs
-    out_dir: Path
-    blade_yaml: Path
-    plot_station_spec: str
-    orchestration: PrecomputeOrchestrationContext
-    buckling_length_mode: str = "chord"
-    buckling_member_length_m: float | None = None
     bg_override: Any | None = None
     grid_meta: Mapping[str, Any] | None = None

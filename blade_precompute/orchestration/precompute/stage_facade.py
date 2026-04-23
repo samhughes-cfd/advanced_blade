@@ -7,8 +7,6 @@ from typing import Any
 from blade_precompute.orchestration.precompute.containers import (
     BeamModelOutputs,
     BeamModelParams,
-    SectionBucklingOutputs,
-    SectionBucklingParams,
     SectionGeometryOutputs,
     SectionGeometryParams,
     SectionOptimisationOutputs,
@@ -18,7 +16,6 @@ from blade_precompute.orchestration.precompute.containers import (
 )
 from blade_precompute.orchestration.precompute.stages import (
     beam_model_impl,
-    section_buckling_impl,
     section_geometry_impl,
     section_optimisation_impl,
     section_properties_impl,
@@ -131,30 +128,4 @@ class SectionOptimisationStage(_StageBase):
         return self
 
     def get_results(self) -> SectionOptimisationOutputs:
-        return super().get_results()
-
-
-class SectionBucklingStage(_StageBase):
-    def __init__(self, *, params: SectionBucklingParams) -> None:
-        super().__init__()
-        self._params = params
-
-    def execute(self) -> SectionBucklingStage:
-        if self._executed:
-            return self
-        self._results = section_buckling_impl(
-            self._params.inp,
-            self._params.out_dir,
-            blade_yaml=self._params.blade_yaml,
-            plot_station_spec=self._params.plot_station_spec,
-            orchestration=self._params.orchestration,
-            buckling_length_mode=self._params.buckling_length_mode,
-            buckling_member_length_m=self._params.buckling_member_length_m,
-            bg_override=self._params.bg_override,
-            grid_meta=self._params.grid_meta,
-        )
-        self._executed = True
-        return self
-
-    def get_results(self) -> SectionBucklingOutputs:
         return super().get_results()

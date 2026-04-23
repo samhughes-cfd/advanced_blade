@@ -61,7 +61,7 @@ def test_execute_returns_self_and_is_idempotent(mock_impl: object, tmp_path: Pat
         station_indices=[0],
         station_r_z_m=[0.0],
         png_paths=[],
-        json_paths=[],
+        geometry_report_json_paths=[],
     )
     st = SectionGeometryStage(
         params=SectionGeometryParams(

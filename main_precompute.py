@@ -40,6 +40,7 @@ _REPO_ROOT = Path(__file__).resolve().parent
 
 DATA_DIR: Path = Path("data_library")
 BLADE_YAML: Path = Path("example_blade_10.yaml")
+# GBT / member section buckling: use ``examples/section_buckling`` and ``examples/section_beam_model`` (not precompute).
 OUTPUT_BASE_DIR: Path = _REPO_ROOT / "outputs"
 
 N_BEAM_NODES: int = 50
@@ -47,9 +48,6 @@ SAVE_SECTION_RECOVERY_CACHE_NPZ: bool = False
 PLOT_STATIONS: str = "root,mid,tip"
 SYSTEM_TYPE: str = "legacy"
 COMPONENT_MATERIALS: Path | None = None
-
-BUCKLING_LENGTH_MODE: str = "chord"
-BUCKLING_MEMBER_LENGTH_M: float | None = None
 
 DESIGN_OPTIMISE: bool = False
 DESIGN_OBJECTIVE: str = "min-mass"
@@ -123,8 +121,6 @@ def main() -> int:
             "component_materials_path": resolve_component_materials_path(
                 DATA_DIR, COMPONENT_MATERIALS
             ),
-            "buckling_length_mode": str(BUCKLING_LENGTH_MODE),
-            "buckling_member_length_m": BUCKLING_MEMBER_LENGTH_M,
             "design_optimise": bool(DESIGN_OPTIMISE),
             "design_objective": design_objective,
             "design_max_iter": int(DESIGN_MAX_ITER),
@@ -198,16 +194,6 @@ def main() -> int:
             "component_materials": orch.component_materials.to_dict(),
             "section_geometry": sg,
             "section_properties": sp,
-            "section_buckling": {
-                "skipped": True,
-                "reason": (
-                    "GBT section buckling is not run from main_precompute. "
-                    "Use examples/section_buckling and examples/section_beam_model."
-                ),
-                "examples": ["examples/section_buckling", "examples/section_beam_model"],
-                "buckling_length_mode": str(BUCKLING_LENGTH_MODE),
-                "buckling_member_length_m": BUCKLING_MEMBER_LENGTH_M,
-            },
             "global_beam_model": bm,
             "section_optimisation": do,
         },

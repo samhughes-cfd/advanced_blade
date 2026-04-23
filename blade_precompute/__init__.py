@@ -11,7 +11,6 @@ Precompute utilities for blade structural models:
 - `orchestration`: system-type and material-map helpers for precompute drivers
 
 GBT workflows live under ``examples/section_beam_model`` and ``examples/section_buckling``.
-The precompute ``section_buckling`` stage is a no-op stub pointing to those paths.
 """
 
 from __future__ import annotations

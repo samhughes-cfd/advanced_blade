@@ -6,8 +6,6 @@ from blade_precompute.orchestration.precompute.containers import (
     GridConfig,
     LinspaceSpec,
     PrecomputeInputs,
-    SectionBucklingOutputs,
-    SectionBucklingParams,
     SectionGeometryOutputs,
     SectionGeometryParams,
     SectionOptimisationOutputs,
@@ -30,7 +28,6 @@ from blade_precompute.orchestration.precompute.inputs import (
 from blade_precompute.orchestration.precompute.jsonutil import to_jsonable, write_json
 from blade_precompute.orchestration.precompute.stage_facade import (
     BeamModelStage,
-    SectionBucklingStage,
     SectionGeometryStage,
     SectionOptimisationStage,
     SectionPropertiesStage,
@@ -43,9 +40,6 @@ __all__ = [
     "GridConfig",
     "LinspaceSpec",
     "PrecomputeInputs",
-    "SectionBucklingOutputs",
-    "SectionBucklingParams",
-    "SectionBucklingStage",
     "SectionGeometryOutputs",
     "SectionGeometryParams",
     "SectionGeometryStage",
