@@ -6,17 +6,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from .section_vlasov import SectionVlasovResult
 
 
 class ProvenanceKind(str, Enum):
     """How a resultant value was obtained."""
 
-    DERIVED = "derived"  # from section recovery (thin-wall mapping)
+    DERIVED = "derived"          # from section recovery (thin-wall mapping)
     PLACEHOLDER = "placeholder"  # not yet recovered; set to explicit default
-    RESERVED = "reserved"  # field reserved for future FSDT / higher-order recovery
+    RESERVED = "reserved"        # field reserved for future FSDT / higher-order recovery
+    MITC4 = "mitc4"              # recovered from MITC4 panel shell solve
 
 
 @dataclass
@@ -94,3 +98,9 @@ class SectionShellRecoveryBundle:
     q_warp: Any
     # Shell handoff for one reference station (optional; filled by adapter helper)
     reference_resultants: ShellPanelResultants | None = None
+    # Per-panel MITC4 element resultants (list[list[ShellPanelResultants]])
+    all_panel_mitc4_results: list | None = None
+    # Per-panel MITC4 diagnostics (residual/reaction/load balance details)
+    all_panel_mitc4_diagnostics: list | None = None
+    # Vlasov warping result (set by run_section_with_mitc4_shell / run_section_both)
+    vlasov_result: SectionVlasovResult | None = None

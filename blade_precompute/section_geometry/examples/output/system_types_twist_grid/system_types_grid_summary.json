@@ -1,0 +1,740 @@
+{
+  "twist_deg": 20.0,
+  "twist_rad": 0.3490658503988659,
+  "naca": "2412",
+  "chord_m": 1.0,
+  "grid": {
+    "nx": 280,
+    "ny": 120
+  },
+  "figure_png_dpi": 300,
+  "structural_naming": {
+    "pattern": "SystemType{X}{Y}-{Z}",
+    "X": "web count",
+    "Y": "spar family (this script: continuous caps \u21d2 C for X\u22652; single web labeled 1B per matrix)",
+    "Z": "CN = chord_normal alignment, F = flapwise",
+    "chord_fraction_presets_ABC": "Only web chord positions \u2014 not structural Y."
+  },
+  "medial_axes_export": {
+    "grad_threshold": 0.92,
+    "min_branch_pixels": 2,
+    "scikit_image_available": false
+  },
+  "system_presets": {
+    "A": "uniform i/(n+1)",
+    "B": "fixed / legacy-style chord fractions",
+    "C": "wide-spread chord fractions"
+  },
+  "include_component_zero_contours": false,
+  "include_geometry_detail": true,
+  "cases": [
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType1B-CN",
+      "chord_fraction_preset": "A",
+      "system": "A",
+      "n_webs": 1,
+      "chord_fracs": [
+        0.5
+      ],
+      "web_x_m": [
+        0.5
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_fore",
+        "core_aft"
+      ],
+      "n_cells": 0,
+      "section_json": "sections/chord_normal_A_n1.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType2C-CN",
+      "chord_fraction_preset": "A",
+      "system": "A",
+      "n_webs": 2,
+      "chord_fracs": [
+        0.3333333333333333,
+        0.6666666666666666
+      ],
+      "web_x_m": [
+        0.3333333333333333,
+        0.6666666666666666
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0"
+      ],
+      "n_cells": 1,
+      "section_json": "sections/chord_normal_A_n2.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType3C-CN",
+      "chord_fraction_preset": "A",
+      "system": "A",
+      "n_webs": 3,
+      "chord_fracs": [
+        0.25,
+        0.5,
+        0.75
+      ],
+      "web_x_m": [
+        0.25,
+        0.5,
+        0.75
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1"
+      ],
+      "n_cells": 2,
+      "section_json": "sections/chord_normal_A_n3.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType4C-CN",
+      "chord_fraction_preset": "A",
+      "system": "A",
+      "n_webs": 4,
+      "chord_fracs": [
+        0.2,
+        0.4,
+        0.6,
+        0.8
+      ],
+      "web_x_m": [
+        0.2,
+        0.4,
+        0.6,
+        0.8
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "web_3",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1",
+        "core_2"
+      ],
+      "n_cells": 3,
+      "section_json": "sections/chord_normal_A_n4.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType1B-CN",
+      "chord_fraction_preset": "B",
+      "system": "B",
+      "n_webs": 1,
+      "chord_fracs": [
+        0.5
+      ],
+      "web_x_m": [
+        0.5
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_fore",
+        "core_aft"
+      ],
+      "n_cells": 0,
+      "section_json": "sections/chord_normal_B_n1.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType2C-CN",
+      "chord_fraction_preset": "B",
+      "system": "B",
+      "n_webs": 2,
+      "chord_fracs": [
+        0.15,
+        0.5
+      ],
+      "web_x_m": [
+        0.15,
+        0.5
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0"
+      ],
+      "n_cells": 1,
+      "section_json": "sections/chord_normal_B_n2.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType3C-CN",
+      "chord_fraction_preset": "B",
+      "system": "B",
+      "n_webs": 3,
+      "chord_fracs": [
+        0.15,
+        0.45,
+        0.75
+      ],
+      "web_x_m": [
+        0.15,
+        0.45,
+        0.75
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1"
+      ],
+      "n_cells": 2,
+      "section_json": "sections/chord_normal_B_n3.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType4C-CN",
+      "chord_fraction_preset": "B",
+      "system": "B",
+      "n_webs": 4,
+      "chord_fracs": [
+        0.12,
+        0.34,
+        0.56,
+        0.78
+      ],
+      "web_x_m": [
+        0.12,
+        0.34,
+        0.56,
+        0.78
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "web_3",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1",
+        "core_2"
+      ],
+      "n_cells": 3,
+      "section_json": "sections/chord_normal_B_n4.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType1B-CN",
+      "chord_fraction_preset": "C",
+      "system": "C",
+      "n_webs": 1,
+      "chord_fracs": [
+        0.42
+      ],
+      "web_x_m": [
+        0.42
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_fore",
+        "core_aft"
+      ],
+      "n_cells": 0,
+      "section_json": "sections/chord_normal_C_n1.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType2C-CN",
+      "chord_fraction_preset": "C",
+      "system": "C",
+      "n_webs": 2,
+      "chord_fracs": [
+        0.3,
+        0.7
+      ],
+      "web_x_m": [
+        0.3,
+        0.7
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0"
+      ],
+      "n_cells": 1,
+      "section_json": "sections/chord_normal_C_n2.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType3C-CN",
+      "chord_fraction_preset": "C",
+      "system": "C",
+      "n_webs": 3,
+      "chord_fracs": [
+        0.22,
+        0.5,
+        0.78
+      ],
+      "web_x_m": [
+        0.22,
+        0.5,
+        0.78
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1"
+      ],
+      "n_cells": 2,
+      "section_json": "sections/chord_normal_C_n3.json",
+      "export_error": null
+    },
+    {
+      "alignment": "chord_normal",
+      "panel_title": "Chord-normal web axis",
+      "structural_system_type": "SystemType4C-CN",
+      "chord_fraction_preset": "C",
+      "system": "C",
+      "n_webs": 4,
+      "chord_fracs": [
+        0.18,
+        0.38,
+        0.62,
+        0.82
+      ],
+      "web_x_m": [
+        0.18,
+        0.38,
+        0.62,
+        0.82
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "web_3",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1",
+        "core_2"
+      ],
+      "n_cells": 3,
+      "section_json": "sections/chord_normal_C_n4.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType1B-F",
+      "chord_fraction_preset": "A",
+      "system": "A",
+      "n_webs": 1,
+      "chord_fracs": [
+        0.5
+      ],
+      "web_x_m": [
+        0.5
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_fore",
+        "core_aft"
+      ],
+      "n_cells": 0,
+      "section_json": "sections/flapwise_A_n1.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType2C-F",
+      "chord_fraction_preset": "A",
+      "system": "A",
+      "n_webs": 2,
+      "chord_fracs": [
+        0.3333333333333333,
+        0.6666666666666666
+      ],
+      "web_x_m": [
+        0.3333333333333333,
+        0.6666666666666666
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0"
+      ],
+      "n_cells": 1,
+      "section_json": "sections/flapwise_A_n2.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType3C-F",
+      "chord_fraction_preset": "A",
+      "system": "A",
+      "n_webs": 3,
+      "chord_fracs": [
+        0.25,
+        0.5,
+        0.75
+      ],
+      "web_x_m": [
+        0.25,
+        0.5,
+        0.75
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1"
+      ],
+      "n_cells": 2,
+      "section_json": "sections/flapwise_A_n3.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType4C-F",
+      "chord_fraction_preset": "A",
+      "system": "A",
+      "n_webs": 4,
+      "chord_fracs": [
+        0.2,
+        0.4,
+        0.6,
+        0.8
+      ],
+      "web_x_m": [
+        0.2,
+        0.4,
+        0.6,
+        0.8
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "web_3",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1",
+        "core_2"
+      ],
+      "n_cells": 3,
+      "section_json": "sections/flapwise_A_n4.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType1B-F",
+      "chord_fraction_preset": "B",
+      "system": "B",
+      "n_webs": 1,
+      "chord_fracs": [
+        0.5
+      ],
+      "web_x_m": [
+        0.5
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_fore",
+        "core_aft"
+      ],
+      "n_cells": 0,
+      "section_json": "sections/flapwise_B_n1.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType2C-F",
+      "chord_fraction_preset": "B",
+      "system": "B",
+      "n_webs": 2,
+      "chord_fracs": [
+        0.15,
+        0.5
+      ],
+      "web_x_m": [
+        0.15,
+        0.5
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0"
+      ],
+      "n_cells": 1,
+      "section_json": "sections/flapwise_B_n2.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType3C-F",
+      "chord_fraction_preset": "B",
+      "system": "B",
+      "n_webs": 3,
+      "chord_fracs": [
+        0.15,
+        0.45,
+        0.75
+      ],
+      "web_x_m": [
+        0.15,
+        0.45,
+        0.75
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1"
+      ],
+      "n_cells": 2,
+      "section_json": "sections/flapwise_B_n3.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType4C-F",
+      "chord_fraction_preset": "B",
+      "system": "B",
+      "n_webs": 4,
+      "chord_fracs": [
+        0.12,
+        0.34,
+        0.56,
+        0.78
+      ],
+      "web_x_m": [
+        0.12,
+        0.34,
+        0.56,
+        0.78
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "web_3",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1",
+        "core_2"
+      ],
+      "n_cells": 3,
+      "section_json": "sections/flapwise_B_n4.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType1B-F",
+      "chord_fraction_preset": "C",
+      "system": "C",
+      "n_webs": 1,
+      "chord_fracs": [
+        0.42
+      ],
+      "web_x_m": [
+        0.42
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_fore",
+        "core_aft"
+      ],
+      "n_cells": 0,
+      "section_json": "sections/flapwise_C_n1.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType2C-F",
+      "chord_fraction_preset": "C",
+      "system": "C",
+      "n_webs": 2,
+      "chord_fracs": [
+        0.3,
+        0.7
+      ],
+      "web_x_m": [
+        0.3,
+        0.7
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0"
+      ],
+      "n_cells": 1,
+      "section_json": "sections/flapwise_C_n2.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType3C-F",
+      "chord_fraction_preset": "C",
+      "system": "C",
+      "n_webs": 3,
+      "chord_fracs": [
+        0.22,
+        0.5,
+        0.78
+      ],
+      "web_x_m": [
+        0.22,
+        0.5,
+        0.78
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1"
+      ],
+      "n_cells": 2,
+      "section_json": "sections/flapwise_C_n3.json",
+      "export_error": null
+    },
+    {
+      "alignment": "flapwise",
+      "panel_title": "Flapwise web axis",
+      "structural_system_type": "SystemType4C-F",
+      "chord_fraction_preset": "C",
+      "system": "C",
+      "n_webs": 4,
+      "chord_fracs": [
+        0.18,
+        0.38,
+        0.62,
+        0.82
+      ],
+      "web_x_m": [
+        0.18,
+        0.38,
+        0.62,
+        0.82
+      ],
+      "labels": [
+        "outer_skin",
+        "web_0",
+        "web_1",
+        "web_2",
+        "web_3",
+        "spar_cap_upper",
+        "spar_cap_lower",
+        "core_0",
+        "core_1",
+        "core_2"
+      ],
+      "n_cells": 3,
+      "section_json": "sections/flapwise_C_n4.json",
+      "export_error": null
+    }
+  ]
+}

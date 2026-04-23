@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping, Sequence, Union
 
 import numpy as np
 import scipy.sparse as sp
@@ -75,6 +75,67 @@ def _dof(node_idx: int, local: int) -> int:
 def _normal_2d(t: np.ndarray) -> np.ndarray:
     """90° CCW rotation of a 2-D tangent unit vector → panel outward normal in (Y,Z)."""
     return np.array([-float(t[1]), float(t[0])], dtype=float)
+
+
+def _cluster_is_collinear(
+    cluster: list[tuple[int, str, Any]],
+    panels: list[Any],
+    tol_deg: float = 1.0,
+) -> bool:
+    """Return True if all panel tangents in the cluster are within tol_deg of each other."""
+    tangents: list[np.ndarray] = []
+    for pi, which, _ in cluster:
+        nodes = np.asarray(getattr(panels[pi], "nodes"), dtype=float)
+        tangents.append(_panel_end_tangent(nodes, which))
+    if len(tangents) < 2:
+        return True
+    tol_rad = tol_deg * np.pi / 180.0
+    t0 = tangents[0]
+    for t in tangents[1:]:
+        cos_a = float(np.clip(np.dot(t0, t), -1.0, 1.0))
+        angle = float(np.arccos(abs(cos_a)))
+        if angle > tol_rad:
+            return False
+    return True
+
+
+def _any_noncollinear_cluster(
+    clusters: list[list[tuple[int, str, Any]]],
+    panels: list[Any],
+    tol_deg: float = 1.0,
+) -> bool:
+    """Return True if any cluster in the list is non-collinear."""
+    return any(
+        not _cluster_is_collinear(c, panels, tol_deg)
+        for c in clusters
+        if len(c) >= 2
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-panel mesh-count resolution.
+# ---------------------------------------------------------------------------
+
+NElements = Union[int, Mapping[int, int], Sequence[int]]
+"""
+Flexible element-count specification for :func:`solve_global_coupled_mitc4`.
+
+- ``int``: same count for every panel.
+- ``Mapping[int, int]``: panel-index → element count; falls back to *default=10*.
+- ``Sequence[int]``: element count per panel index; falls back to *default=10*
+  if the index is out of range.
+"""
+
+
+def _resolve_n_elements(spec: NElements, pi: int, default: int = 10) -> int:
+    """Return the element count for panel ``pi`` given a flexible spec."""
+    if isinstance(spec, int):
+        return spec
+    if isinstance(spec, Mapping):
+        return int(spec.get(pi, default))
+    if isinstance(spec, Sequence):
+        return int(spec[pi]) if pi < len(spec) else default
+    raise TypeError(f"n_elements_per_panel must be int, Mapping, or Sequence; got {type(spec)}")
 
 
 # Type alias for the unified multi-master constraint format.
@@ -203,6 +264,77 @@ def _build_basis_transform_constraints(
     return constraints
 
 
+def _build_cluster_basis_constraints(
+    panel_maps: list["_PanelGlobalMap"],
+    panels: list[Any],
+    endpoint_clusters: list[list[tuple[int, str, np.ndarray]]],
+    endpoint_cluster_node: dict[tuple[int, str, str], int],
+    endpoint_cluster_rot_node: dict[tuple[int, str, str], int],
+) -> _Constraints:
+    """
+    Build transformed-basis constraints against cluster reference DOFs.
+
+    This avoids panel-to-panel master/slave chains and makes BC propagation robust:
+    all panel endpoint DOFs are slaves, cluster reference DOFs are masters.
+    """
+    constraints: _Constraints = {}
+    for cluster in endpoint_clusters:
+        if len(cluster) < 1:
+            continue
+        # Reference tangent from principal direction of endpoint tangents.
+        t_mats: list[np.ndarray] = []
+        for pi, which, _ in cluster:
+            nodes = np.asarray(getattr(panels[pi], "nodes"), dtype=float)
+            t = _panel_end_tangent(nodes, which)
+            t_mats.append(np.outer(t, t))
+        if t_mats:
+            M = np.sum(np.stack(t_mats, axis=0), axis=0)
+            evals, evecs = np.linalg.eigh(M)
+            t_ref = np.asarray(evecs[:, int(np.argmax(evals))], dtype=float)
+            if float(np.linalg.norm(t_ref)) < 1e-12:
+                t_ref = np.array([1.0, 0.0], dtype=float)
+        else:
+            t_ref = np.array([1.0, 0.0], dtype=float)
+        if float(t_ref[0]) < 0.0:
+            t_ref = -t_ref
+        t_ref = t_ref / max(float(np.linalg.norm(t_ref)), 1e-12)
+        n_ref = _normal_2d(t_ref)
+
+        for pi, end, _ in cluster:
+            pm = panel_maps[pi]
+            n = len(pm.s_nodes)
+            if n == 0:
+                continue
+            row = 0 if end == "start" else n - 1
+            nodes = np.asarray(getattr(panels[pi], "nodes"), dtype=float)
+            t_p = _panel_end_tangent(nodes, end)
+            n_p = _normal_2d(t_p)
+            ts = float(np.dot(t_p, t_ref))
+            tn = float(np.dot(t_p, n_ref))
+            ns = float(np.dot(n_p, t_ref))
+            nn = float(np.dot(n_p, n_ref))
+
+            for off, layer in ((row, "bottom"), (row + n, "top")):
+                gn_p = pm.global_nodes[off]
+                gn_c_main = endpoint_cluster_node[(pi, end, layer)]
+                gn_c_rot = endpoint_cluster_rot_node[(pi, end, layer)]
+                constraints[_dof(gn_p, _U_X)] = [(_dof(gn_c_main, _U_X), 1.0)]
+                us_terms = [(_dof(gn_c_main, _U_S), ts)]
+                if abs(tn) > 1e-12:
+                    us_terms.append((_dof(gn_c_main, _W), tn))
+                constraints[_dof(gn_p, _U_S)] = us_terms
+                w_terms = [(_dof(gn_c_main, _U_S), ns)]
+                if abs(nn) > 1e-12:
+                    w_terms.append((_dof(gn_c_main, _W), nn))
+                constraints[_dof(gn_p, _W)] = w_terms
+                constraints[_dof(gn_p, _BETA_X)] = [(_dof(gn_c_main, _BETA_X), 1.0)]
+                beta_terms = [(_dof(gn_c_main, _BETA_S), ts)]
+                if abs(tn) > 1e-12:
+                    beta_terms.append((_dof(gn_c_rot, _BETA_S), tn))
+                constraints[_dof(gn_p, _BETA_S)] = beta_terms
+    return constraints
+
+
 @dataclass
 class _PanelGlobalMap:
     s_nodes: np.ndarray
@@ -217,10 +349,12 @@ def solve_global_coupled_mitc4(
     Nx_panels: list[np.ndarray],
     Nxy_panels: list[np.ndarray],
     *,
-    n_elements_per_panel: int = 10,
+    n_elements_per_panel: NElements = 10,
     endpoint_tol: float = 1e-6,
     bc_mode: str = "legacy",
     interface_constraint_mode: str = "shared",
+    enforce_traction_balance_at_cusp: bool = False,
+    traction_penalty_alpha: float = 1e-2,
 ) -> tuple[list[list[ShellPanelResultants]], list[dict]]:
     """
     Assemble and solve all panel strips in one global system with shared endpoint nodes.
@@ -234,7 +368,7 @@ def solve_global_coupled_mitc4(
         if len(s_panel) < 2:
             panel_maps.append(_PanelGlobalMap(np.array([]), [], [], str(getattr(p, "label", f"panel_{pi}")), pi))
             continue
-        s_nodes, elems = _panel_mesh(s_panel, n_elements_per_panel)
+        s_nodes, elems = _panel_mesh(s_panel, _resolve_n_elements(n_elements_per_panel, pi))
         n_local_nodes = 2 * len(s_nodes)
         global_nodes = [-1] * n_local_nodes
         panel_maps.append(_PanelGlobalMap(s_nodes, elems, global_nodes, str(getattr(p, "label", f"panel_{pi}")), pi))
@@ -250,7 +384,23 @@ def solve_global_coupled_mitc4(
         for pi, which, _ in c:
             endpoint_cluster_index[(pi, which)] = cluster_id
 
+    # Collinearity flags per cluster (used for diagnostics and optional penalty).
+    cluster_is_collinear_flags: dict[int, bool] = {
+        cid: _cluster_is_collinear(c, panels, tol_deg=5.0)
+        for cid, c in enumerate(clusters)
+    }
+
+    # effective_mode reflects what is actually used internally. "shared_rotated"
+    # is an alias for "transformed_basis" topology + MPCs; when explicitly chosen,
+    # it is stored as "shared_rotated" in diagnostics to distinguish from
+    # "transformed_basis" (same internals, same label for now).
+    effective_mode = interface_constraint_mode
+
     next_global_node = 0
+    endpoint_cluster_node: dict[tuple[int, str, str], int] = {}
+    endpoint_cluster_rot_node: dict[tuple[int, str, str], int] = {}
+    cluster_layer_node: dict[tuple[int, str], int] = {}
+    cluster_layer_rot_node: dict[tuple[int, str], int] = {}
     if interface_constraint_mode == "shared":
         endpoint_global_node: dict[tuple[int, str, str], int] = {}
         for c in clusters:
@@ -272,6 +422,30 @@ def solve_global_coupled_mitc4(
                 pm.global_nodes[li] = next_global_node
                 next_global_node += 1
             for li in range(n + 1, 2 * n - 1):
+                pm.global_nodes[li] = next_global_node
+                next_global_node += 1
+    elif interface_constraint_mode in ("transformed_basis", "shared_rotated") or effective_mode == "shared_rotated":
+        # Allocate two cluster reference nodes per layer (bottom/top):
+        # - main node carries {U_X, U_S, W, BETA_X, BETA_S(t_ref)}
+        # - rot node reuses BETA_S slot as BETA_S(n_ref) = beta_n_ref
+        # This block handles: transformed_basis, shared_rotated (explicit),
+        # and shared auto-promoted to shared_rotated (effective_mode).
+        for cid, c in enumerate(clusters):
+            for layer in ("bottom", "top"):
+                cluster_layer_node[(cid, layer)] = next_global_node
+                next_global_node += 1
+                cluster_layer_rot_node[(cid, layer)] = next_global_node
+                next_global_node += 1
+            for pi, which, _ in c:
+                endpoint_cluster_node[(pi, which, "bottom")] = cluster_layer_node[(cid, "bottom")]
+                endpoint_cluster_node[(pi, which, "top")] = cluster_layer_node[(cid, "top")]
+                endpoint_cluster_rot_node[(pi, which, "bottom")] = cluster_layer_rot_node[(cid, "bottom")]
+                endpoint_cluster_rot_node[(pi, which, "top")] = cluster_layer_rot_node[(cid, "top")]
+        # Panel nodes remain unique; endpoint compatibility enforced by MPC.
+        for pm in panel_maps:
+            if len(pm.s_nodes) == 0:
+                continue
+            for li in range(2 * len(pm.s_nodes)):
                 pm.global_nodes[li] = next_global_node
                 next_global_node += 1
     else:
@@ -379,44 +553,86 @@ def solve_global_coupled_mitc4(
 
     K_global = sp.coo_matrix((vals, (rows, cols)), shape=(n_gdof, n_gdof)).tocsr()
 
-    # Build compatibility constraints based on selected mode.
-    if interface_constraint_mode == "shared":
+    # Build compatibility constraints based on effective mode.
+    # "shared_rotated" (whether explicit or auto-promoted from "shared") uses the
+    # same 6-DOF cluster-basis MPCs as "transformed_basis".
+    use_cluster_basis = effective_mode in ("transformed_basis", "shared_rotated") or \
+                        interface_constraint_mode in ("transformed_basis", "shared_rotated")
+    if not use_cluster_basis and interface_constraint_mode == "shared":
         constraints: _Constraints = {}
-    elif interface_constraint_mode == "transformed_basis":
-        constraints = _build_basis_transform_constraints(panel_maps, panels, clusters)
+    elif use_cluster_basis:
+        constraints = _build_cluster_basis_constraints(
+            panel_maps,
+            panels,
+            clusters,
+            endpoint_cluster_node,
+            endpoint_cluster_rot_node,
+        )
+        # Rot nodes only carry beta_n_ref in their BETA_S slot; tie all other
+        # translational/spanwise-rotation DOFs to the corresponding main node so
+        # they do not introduce free rigid mechanisms.
+        for key, gn_rot in cluster_layer_rot_node.items():
+            gn_main = cluster_layer_node[key]
+            constraints[_dof(gn_rot, _U_X)] = [(_dof(gn_main, _U_X), 1.0)]
+            constraints[_dof(gn_rot, _U_S)] = [(_dof(gn_main, _U_S), 1.0)]
+            constraints[_dof(gn_rot, _W)] = [(_dof(gn_main, _W), 1.0)]
+            constraints[_dof(gn_rot, _BETA_X)] = [(_dof(gn_main, _BETA_X), 1.0)]
     else:
         # "transformed" mode: legacy scalar-ratio constraints.
         constraints = _build_transform_constraints(panel_maps, panels, clusters)
 
     # Global supports: minimal RBM + optional legacy endpoint support.
-    # In transformed_basis mode, slave endpoint DOFs are constrained via MPC;
-    # applying a direct BC to them would conflict with the constraint (the constraint
-    # is silently skipped when a slave is fixed).  We therefore identify slave endpoint
-    # DOFs and skip the direct BC so the MPC propagates the master's BC instead.
-    _slave_endpoint_dofs: set[int] = set()
-    if interface_constraint_mode == "transformed_basis":
-        for slave_dof in constraints:
-            _slave_endpoint_dofs.add(slave_dof)
-
     fixed: set[int] = set()
     if next_global_node > 1:
         fixed.add(_dof(0, _U_X))
         fixed.add(_dof(0, _U_S))
         fixed.add(_dof(1, _U_X))
-    for pm in panel_maps:
-        if len(pm.s_nodes) == 0:
-            continue
-        n = len(pm.s_nodes)
-        if bc_mode == "legacy":
-            support_nodes = (0, n - 1, n, 2 * n - 1)
-        else:
-            support_nodes = (0, n - 1)
-        for ln in support_nodes:
-            gn = pm.global_nodes[ln]
-            for dof_type in (_W, _BETA_S, _BETA_X):
-                dof = _dof(gn, dof_type)
-                if dof not in _slave_endpoint_dofs:
-                    fixed.add(dof)
+    if use_cluster_basis:
+        fixed_cluster_layers: set[tuple[int, str]] = set()
+        for pm in panel_maps:
+            if len(pm.s_nodes) == 0:
+                continue
+            n = len(pm.s_nodes)
+            if bc_mode == "legacy":
+                support_nodes = (0, n - 1, n, 2 * n - 1)
+            else:
+                support_nodes = (0, n - 1)
+            for ln in support_nodes:
+                if ln == 0:
+                    which, layer = "start", "bottom"
+                elif ln == n - 1:
+                    which, layer = "end", "bottom"
+                elif ln == n:
+                    which, layer = "start", "top"
+                elif ln == 2 * n - 1:
+                    which, layer = "end", "top"
+                else:
+                    continue
+                cid = endpoint_cluster_index.get((pm.panel_index, which), -1)
+                if cid < 0:
+                    continue
+                key = (cid, layer)
+                if key in fixed_cluster_layers:
+                    continue
+                fixed_cluster_layers.add(key)
+                gn_main = cluster_layer_node[key]
+                gn_rot = cluster_layer_rot_node[key]
+                for dof_type in (_W, _BETA_S, _BETA_X):
+                    fixed.add(_dof(gn_main, dof_type))
+                fixed.add(_dof(gn_rot, _BETA_S))
+    else:
+        for pm in panel_maps:
+            if len(pm.s_nodes) == 0:
+                continue
+            n = len(pm.s_nodes)
+            if bc_mode == "legacy":
+                support_nodes = (0, n - 1, n, 2 * n - 1)
+            else:
+                support_nodes = (0, n - 1)
+            for ln in support_nodes:
+                gn = pm.global_nodes[ln]
+                for dof_type in (_W, _BETA_S, _BETA_X):
+                    fixed.add(_dof(gn, dof_type))
 
     # Apply panel-level static consistency correction to match integrated targets.
     for pi, pm in enumerate(panel_maps):
@@ -455,6 +671,20 @@ def solve_global_coupled_mitc4(
             panel_load_totals[pi]["Fx_correction"] = d_fx
             panel_load_totals[pi]["Fs_correction"] = d_fs
 
+    # Propagate fixity through MPCs: if all masters of a slave are fixed, the slave
+    # is also effectively fixed to zero.  Without propagation, such slaves appear as
+    # unconstrained free DOFs whose residuals are never attributed to any support
+    # reaction, breaking the global force-balance audit.
+    _propagated = True
+    while _propagated:
+        _propagated = False
+        for _slave, _terms in constraints.items():
+            if _slave in fixed:
+                continue
+            if all(_master in fixed for _master, _ in _terms):
+                fixed.add(_slave)
+                _propagated = True
+
     fixed_sorted = sorted(fixed)
     constrained_slaves = set(constraints.keys())
     # Each constraint value is a list of (master_dof, coeff) pairs.
@@ -482,9 +712,58 @@ def solve_global_coupled_mitc4(
     if len(independent) > 0:
         K_rr = (T.T @ K_global @ T).tocsc()
         f_r = np.asarray(T.T @ f_global, dtype=float)
+
+        # Optional soft traction-balance penalty for 2-way non-collinear clusters.
+        # Adds (k/2)*(Tx_i + Tx_j)^2 to the energy functional, enforcing Newton III
+        # at sharp cusp junctions (e.g., LE) where the MPC alone cannot guarantee it.
+        if enforce_traction_balance_at_cusp and use_cluster_basis:
+            from lib.laminate_clpt import abd_stack  # type: ignore[import-untyped]
+            k_diag_max = float(K_rr.diagonal().max()) if K_rr.shape[0] > 0 else 1.0
+            k_pen = traction_penalty_alpha * k_diag_max
+            for cid, clu in enumerate(clusters):
+                if len(clu) != 2 or cluster_is_collinear_flags.get(cid, True):
+                    continue
+                c_vecs: list[np.ndarray] = []
+                for pi_c, which_c, _ in clu:
+                    pm_c = panel_maps[pi_c]
+                    if not pm_c.elements:
+                        break
+                    elem_local = pm_c.elements[0] if which_c == "start" else pm_c.elements[-1]
+                    edge_side = which_c
+                    i0_e, i1_e, i2_e, i3_e = elem_local
+                    L_s_e = float(abs(pm_c.s_nodes[i1_e] - pm_c.s_nodes[i0_e]))
+                    p_c = panels[pi_c]
+                    A_c, B_c, D_c = abd_stack(p_c.lam.build_plies())
+                    ABD_c = np.block([[A_c, B_c], [B_c, D_c]])
+                    # c_elem[k] = ∂Tx_int/∂d_elem[k]: linear map from element DOFs
+                    # to boundary traction (evaluated analytically via unit vectors).
+                    c_elem = np.zeros(20)
+                    for k_dof in range(20):
+                        e_k = np.zeros(20)
+                        e_k[k_dof] = 1.0
+                        c_elem[k_dof] = float(
+                            mitc4_edge_shear_traction_integrated(
+                                e_k, L_s_e, 1.0, ABD_c, edge=edge_side, gauss_n=4
+                            )["Tx_edge_int"]
+                        )
+                    c_global = np.zeros(n_gdof)
+                    for li_idx, ln in enumerate([i0_e, i1_e, i2_e, i3_e]):
+                        gn_e = pm_c.global_nodes[ln]
+                        for d_idx in range(_NDOF_NODE):
+                            c_global[_dof(gn_e, d_idx)] += c_elem[li_idx * _NDOF_NODE + d_idx]
+                    c_vecs.append(c_global)
+                if len(c_vecs) == 2:
+                    c_sum_r = np.asarray(T.T @ (c_vecs[0] + c_vecs[1]), dtype=float)
+                    K_rr = (K_rr + sp.csr_matrix(k_pen * np.outer(c_sum_r, c_sum_r))).tocsc()
+
         q = spla.spsolve(K_rr, f_r)
         d_global = np.asarray(T @ q, dtype=float)
     r_full = np.asarray(K_global @ d_global - f_global, dtype=float)
+
+    # Global force balance at fixed DOFs: authoritative equilibrium metric.
+    # At free DOFs, r_full ≈ 0 (solved). At fixed DOFs, r_full = support reaction.
+    # sum_rx_fixed_UX + sum(f_global[UX_dofs]) ≈ 0 for a correct solve.
+    sum_rx_fixed_UX = float(sum(r_full[dof] for dof in fixed_sorted if dof % _NDOF_NODE == _U_X))
 
     # Recover per-panel results + diagnostics.
     all_panel_results: list[list[ShellPanelResultants]] = []
@@ -533,10 +812,10 @@ def solve_global_coupled_mitc4(
             edge_start_s_acc.append(float(edge["start"]["Nxy"]))
             edge_end_s_acc.append(float(edge["end"]["Nxy"]))
             edge_int_start = mitc4_edge_shear_traction_integrated(
-                d_elem, L_s, 1.0, ABD, edge="start", gauss_n=3
+                d_elem, L_s, 1.0, ABD, edge="start", gauss_n=4
             )
             edge_int_end = mitc4_edge_shear_traction_integrated(
-                d_elem, L_s, 1.0, ABD, edge="end", gauss_n=3
+                d_elem, L_s, 1.0, ABD, edge="end", gauss_n=4
             )
             edge_start_tx_acc.append(float(edge_int_start["Tx_edge_int"]))
             edge_start_ts_acc.append(float(edge_int_start["Ts_edge_int"]))
@@ -565,12 +844,26 @@ def solve_global_coupled_mitc4(
         all_panel_results.append(results)
 
         n = len(pm.s_nodes)
-        start_nodes = [pm.global_nodes[0], pm.global_nodes[n]]
-        end_nodes = [pm.global_nodes[n - 1], pm.global_nodes[2 * n - 1]]
-        start_fx = float(sum(r_full[_dof(gn, _U_X)] for gn in start_nodes))
-        start_fs = float(sum(r_full[_dof(gn, _U_S)] for gn in start_nodes))
-        end_fx = float(sum(r_full[_dof(gn, _U_X)] for gn in end_nodes))
-        end_fs = float(sum(r_full[_dof(gn, _U_S)] for gn in end_nodes))
+        if use_cluster_basis:
+            # In cluster-basis modes (transformed_basis, shared_rotated) panel endpoint
+            # nodes are unique, so r_full at the cluster master node doesn't represent
+            # the per-panel contribution. Use outward-normal-signed edge tractions:
+            #   Fx = Tx_int = Nxy * normal_sign  (spanwise, X-direction)
+            #   Fs = Tx_int = Nxy * normal_sign  (shear-flow continuity; same data,
+            #        checked with orientation mapping in check_panel_equilibrium)
+            # This is the same quantity used by the cluster-sum check so that Newton III
+            # reads Fx_i + Fx_j = 0 at a 2-way junction.
+            start_fx = float(edge_start_tx_acc[0]) if edge_start_tx_acc else 0.0
+            start_fs = float(edge_start_tx_acc[0]) if edge_start_tx_acc else 0.0
+            end_fx = float(edge_end_tx_acc[-1]) if edge_end_tx_acc else 0.0
+            end_fs = float(edge_end_tx_acc[-1]) if edge_end_tx_acc else 0.0
+        else:
+            start_nodes = [pm.global_nodes[0], pm.global_nodes[n]]
+            end_nodes = [pm.global_nodes[n - 1], pm.global_nodes[2 * n - 1]]
+            start_fx = float(sum(r_full[_dof(gn, _U_X)] for gn in start_nodes))
+            start_fs = float(sum(r_full[_dof(gn, _U_S)] for gn in start_nodes))
+            end_fx = float(sum(r_full[_dof(gn, _U_X)] for gn in end_nodes))
+            end_fs = float(sum(r_full[_dof(gn, _U_S)] for gn in end_nodes))
         edge_start_nx = float(edge_start_acc[0]) if edge_start_acc else 0.0
         edge_end_nx = float(edge_end_acc[-1]) if edge_end_acc else 0.0
         edge_start_nxy = float(edge_start_s_acc[0]) if edge_start_s_acc else 0.0
@@ -579,19 +872,35 @@ def solve_global_coupled_mitc4(
         edge_end_nxy_int = float(edge_end_tx_acc[-1]) if edge_end_tx_acc else 0.0
         edge_start_ts_int = float(edge_start_ts_acc[0]) if edge_start_ts_acc else 0.0
         edge_end_ts_int = float(edge_end_ts_acc[-1]) if edge_end_ts_acc else 0.0
+        # Near-boundary traction samples for R4 shear-gradient analysis.
+        _k = min(3, len(edge_start_tx_acc))
+        edge_start_tx_near = edge_start_tx_acc[:_k]
+        edge_end_tx_near = edge_end_tx_acc[-_k:] if _k > 0 else []
         # Blend edge-resultant recovery with nodal interface-force recovery to
         # stabilize secondary continuity diagnostics at multi-way junctions.
+        # In cluster-basis modes start_fx/end_fx carry Tx_int (Nxy-derived), not Nx,
+        # so the Nx field diagnostic uses the pure element-edge Nx directly.
         alpha_force = 0.75
-        field_start_nx = float(alpha_force * start_fx + (1.0 - alpha_force) * edge_start_nx)
-        field_end_nx = float(alpha_force * end_fx + (1.0 - alpha_force) * edge_end_nx)
+        if use_cluster_basis:
+            field_start_nx = float(edge_start_nx)
+            field_end_nx = float(edge_end_nx)
+        else:
+            field_start_nx = float(alpha_force * start_fx + (1.0 - alpha_force) * edge_start_nx)
+            field_end_nx = float(alpha_force * end_fx + (1.0 - alpha_force) * edge_end_nx)
         # Nxy secondary field is now taken from edge line-integration directly.
         field_start_nxy = edge_start_nxy_int
         field_end_nxy = edge_end_nxy_int
+        _cid_start = endpoint_cluster_index.get((pi, "start"), -1)
+        _cid_end = endpoint_cluster_index.get((pi, "end"), -1)
         all_panel_diag.append(
             {
                 "endpoint_cluster_index": {
-                    "start": int(endpoint_cluster_index.get((pi, "start"), -1)),
-                    "end": int(endpoint_cluster_index.get((pi, "end"), -1)),
+                    "start": int(_cid_start),
+                    "end": int(_cid_end),
+                },
+                "endpoint_cluster_collinear": {
+                    "start": bool(cluster_is_collinear_flags.get(_cid_start, True)),
+                    "end": bool(cluster_is_collinear_flags.get(_cid_end, True)),
                 },
                 "panel_end_tangent": {
                     "start": _panel_end_tangent(nodes_yz, "start").tolist(),
@@ -612,6 +921,7 @@ def solve_global_coupled_mitc4(
                         "Nxy_int": edge_start_nxy_int,
                         "Tx_int": edge_start_nxy_int,
                         "Ts_int": edge_start_ts_int,
+                        "Tx_near": edge_start_tx_near,
                     },
                     "end": {
                         "Nx": edge_end_nx,
@@ -619,6 +929,7 @@ def solve_global_coupled_mitc4(
                         "Nxy_int": edge_end_nxy_int,
                         "Tx_int": edge_end_nxy_int,
                         "Ts_int": edge_end_ts_int,
+                        "Tx_near": edge_end_tx_near,
                     },
                 },
                 "load_totals": panel_load_totals[pi],
@@ -630,7 +941,26 @@ def solve_global_coupled_mitc4(
                     "n_reduced_dofs": int(len(independent)),
                     "n_slave_dofs": int(len(constrained_slaves)),
                     "n_master_dofs": int(len(constrained_masters)),
+                    "n_fixed_dofs": int(len(fixed_sorted)),
                 },
+                "endpoint_cluster_rot_node": (
+                    {
+                        "start": {
+                            "bottom": int(endpoint_cluster_rot_node[(pi, "start", "bottom")]),
+                            "top": int(endpoint_cluster_rot_node[(pi, "start", "top")]),
+                        },
+                        "end": {
+                            "bottom": int(endpoint_cluster_rot_node[(pi, "end", "bottom")]),
+                            "top": int(endpoint_cluster_rot_node[(pi, "end", "top")]),
+                        },
+                    }
+                    if use_cluster_basis
+                    else {}
+                ),
+                "interface_constraint_mode": str(effective_mode),
+                # Authoritative global UX force balance at fixed (RBM-support) DOFs.
+                # Should equal -sum(Fx_target) for a correct solve; see build_load_reaction_audit.
+                "global_reaction_at_fixed_UX": float(sum_rx_fixed_UX),
                 "solver": "global_coupled",
             }
         )

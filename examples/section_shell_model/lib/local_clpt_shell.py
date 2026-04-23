@@ -28,7 +28,7 @@ def _ensure_stress_imports() -> None:
 class StationCLPTShellResult:
     """Ply-level CLPT output at one station."""
 
-    fi_tsai_wu: np.ndarray
+    fi: np.ndarray
     eps0: np.ndarray
     kappa: np.ndarray
     sig_lam_mid: list[np.ndarray]
@@ -49,7 +49,8 @@ def solve_station_clpt_shell(
     S12: float,
 ) -> StationCLPTShellResult:
     """
-    Solve CLPT for ``[N; M] = [[A,B],[B,D]] [eps0; kappa]`` and Tsai–Wu per ply.
+    Solve CLPT for ``[N; M] = [[A,B],[B,D]] [eps0; kappa]`` and a Hashin 1980
+    envelope failure index per ply (default :func:`clpt_ply_failure_indices` criterion).
 
     Uses the same :func:`clpt_ply_failure_indices` path as the stress-model skin demo.
     """
@@ -62,7 +63,7 @@ def solve_station_clpt_shell(
     N_vec = resultants.to_N_vec()
     M_vec = resultants.to_M_vec()
 
-    fi_tw, eps0, kappa, sig_lam = clpt_ply_failure_indices(
+    fi, eps0, kappa, sig_lam = clpt_ply_failure_indices(
         plies,
         N_vec,
         M_vec,
@@ -75,7 +76,7 @@ def solve_station_clpt_shell(
     eps_lam = ply_mid_strains(plies, eps0, kappa)
 
     return StationCLPTShellResult(
-        fi_tsai_wu=fi_tw,
+        fi=fi,
         eps0=eps0,
         kappa=kappa,
         sig_lam_mid=list(sig_lam),
@@ -84,6 +85,34 @@ def solve_station_clpt_shell(
         N_vec=N_vec,
         M_vec=M_vec,
     )
+
+
+def sweep_panel_clpt_fi(
+    panel_resultants: list,
+    plies: list,
+    *,
+    Xt: float,
+    Xc: float,
+    Yt: float,
+    Yc: float,
+    S12: float,
+) -> list[StationCLPTShellResult]:
+    """
+    Run CLPT Hashin-envelope failure analysis on every element in ``panel_resultants``.
+
+    Parameters
+    ----------
+    panel_resultants : list[ShellPanelResultants]  — from solve_panel_mitc4
+    plies            : ply stack for this panel (same for all elements)
+
+    Returns
+    -------
+    list[StationCLPTShellResult] — one per element, in contour order
+    """
+    return [
+        solve_station_clpt_shell(r, plies, Xt=Xt, Xc=Xc, Yt=Yt, Yc=Yc, S12=S12)
+        for r in panel_resultants
+    ]
 
 
 def default_skin_strengths_pa() -> dict[str, float]:

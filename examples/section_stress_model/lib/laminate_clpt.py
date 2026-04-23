@@ -14,6 +14,8 @@ Beam/section usage:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
+
 import numpy as np
 
 
@@ -272,6 +274,42 @@ def tsai_wu_fi(
     )
 
 
+def hashin_fi(
+    sigma_mat: np.ndarray,
+    Xt: float,
+    Xc: float,
+    Yt: float,
+    Yc: float,
+    S12: float,
+) -> float:
+    """
+    Hashin (1980) 2D plane-stress **envelope** failure index (FI = 1 on onset).
+
+    ``sigma_mat`` = [σ11, σ22, τ12] [Pa] in **material** axes (1 = fibre, 2 = transverse in-plane).
+
+    We use the four **mode** quadratics in τ12 with **Macaulay** fibre/matrix normal stresses
+    (Abaqus-style progressive-damage sign split; e.g. Abaqus 2023 *Damage Initiation* for
+    “Hashin” in shell elements, with σ1, σ2 split into positive/negative parts in the four
+    fibre/matrix tension–compression criteria). All four modes include the (τ12/S)² term so
+    pure in-plane shear is non-degenerate. The reported FI is the **maximum** of the four
+    mode FIs.
+    """
+    s11, s22, t = float(sigma_mat[0]), float(sigma_mat[1]), float(sigma_mat[2])
+    Xt = max(Xt, 1e-9)
+    Xc = max(Xc, 1e-9)
+    Yt = max(Yt, 1e-9)
+    Yc = max(Yc, 1e-9)
+    S = max(S12, 1e-9)
+    tq = (t / S) ** 2
+    s11p, s11n = max(s11, 0.0), min(s11, 0.0)
+    s22p, s22n = max(s22, 0.0), min(s22, 0.0)
+    fi_ft = (s11p / Xt) ** 2 + tq
+    fi_fc = (s11n / Xc) ** 2 + tq
+    fi_mt = (s22p / Yt) ** 2 + tq
+    fi_mc = (s22n / Yc) ** 2 + tq
+    return float(max(fi_ft, fi_fc, fi_mt, fi_mc))
+
+
 def ply_mid_strains(plies: list[Ply], eps0: np.ndarray, kappa: np.ndarray) -> list[np.ndarray]:
     """ε = [εx, εy, γxy] at each ply mid-thickness (laminate axes, engineering shear)."""
     h = sum(p.t for p in plies)
@@ -325,13 +363,21 @@ def clpt_ply_failure_indices(
     Yt: float,
     Yc: float,
     S12: float,
+    *,
+    criterion: Literal["hashin", "tsai_wu"] = "hashin",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[np.ndarray]]:
     """
-    Solve CLPT for (N, M), then Tsai–Wu FI per ply (mid-thickness).
+    Solve CLPT for (N, M), then a ply failure index per ply (mid-thickness).
+
+    Parameters
+    ----------
+    criterion
+        ``"hashin"`` (default): :func:`hashin_fi` 4-mode envelope. ``"tsai_wu"``:
+        :func:`tsai_wu_fi` polynomial (legacy).
 
     Returns
     -------
-    fi_tw : (n_ply,) Tsai–Wu FI
+    fi : (n_ply,) max failure index (same convention as the chosen ``criterion``)
     eps0, kappa : mid-surface strain and curvature (laminate axes)
     sig_lam : list of [σx, σy, τxy] per ply (laminate axes, mid-thickness)
     """
@@ -339,8 +385,12 @@ def clpt_ply_failure_indices(
     eps0, kappa = laminate_midstrains_curvatures(A, B, D, N_vec, M_vec)
     sig_lam = ply_mid_stresses(plies, eps0, kappa)
     n = len(plies)
-    fi_tw = np.zeros(n, dtype=float)
+    fi = np.zeros(n, dtype=float)
+    if criterion == "tsai_wu":
+        _f = tsai_wu_fi
+    else:
+        _f = hashin_fi
     for i, p in enumerate(plies):
         sm = stress_laminate_to_material(sig_lam[i], p.theta_deg)
-        fi_tw[i] = tsai_wu_fi(sm, Xt, Xc, Yt, Yc, S12)
-    return fi_tw, eps0, kappa, sig_lam
+        fi[i] = _f(sm, Xt, Xc, Yt, Yc, S12)
+    return fi, eps0, kappa, sig_lam

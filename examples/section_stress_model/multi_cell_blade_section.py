@@ -29,7 +29,7 @@ Usage:
 
 Writes ``outputs/blade_section_distributions.png`` (q + sigma), ``outputs/blade_section_shear_flow.png`` (q only),
 ``outputs/blade_section_bending_stress.png`` (sigma only), and ``outputs/blade_section_clpt_fi.png``
-(CLT ply stresses/strains with Tsai–Wu FI at one skin station), next to this script.
+(CLT ply stresses/strains with Hashin-envelope FI at one skin station), next to this script.
 
 Requirements: numpy, matplotlib
 """
@@ -132,7 +132,7 @@ WEB_LAM = Laminate(E=12e9, t=0.010, name="Shear web ±45 GFRP")
 T_PLY_SKIN = SKIN_LAM.t / SKIN_LAM.n_plies
 RHO_SKIN = 1900.0  # [kg/m³] typical GFRP — areal mass = RHO_SKIN * t_skin [kg/m²]
 
-# Representative ply strengths [Pa] for Tsai–Wu (tune to your prepreg data)
+# Representative ply strengths [Pa] for CLPT failure envelopes (tune to your prepreg data)
 SKIN_STRENGTH = dict(
     Xt=600e6,
     Xc=500e6,
@@ -932,7 +932,8 @@ def _skin_station_clpt_data(
     strengths: dict | None = None,
 ):
     """
-    Thin-wall (σ_xx, q) at one skin panel station → membrane CLPT → Tsai–Wu FI per ply.
+    Thin-wall (σ_xx, q) at one skin panel station → membrane CLPT → Hashin 1980 envelope
+    failure index per ply (default in :func:`clpt_ply_failure_indices`).
 
     **Model.** Laminate x = span, y = contour, σ_yy ≈ 0, τ_xy = q/t;
     Nx = σ_xx·t, Nxy = q.
@@ -955,7 +956,7 @@ def _skin_station_clpt_data(
     N_vec = membrane_resultants_from_shell_stress(sig_xx, 0.0, tau_xy, t_wall)
     M_vec = np.zeros(3, dtype=float)
 
-    fi_tw, eps0, kappa, sig_lam = clpt_ply_failure_indices(
+    fi, eps0, kappa, sig_lam = clpt_ply_failure_indices(
         plies,
         N_vec,
         M_vec,
@@ -969,7 +970,7 @@ def _skin_station_clpt_data(
     return {
         "p": p,
         "plies": plies,
-        "fi_tw": fi_tw,
+        "fi": fi,
         "eps0": eps0,
         "kappa": kappa,
         "sig_lam": sig_lam,
@@ -984,7 +985,7 @@ def _skin_station_clpt_data(
     }
 
 
-def skin_station_tsai_wu_max_fi(
+def skin_station_clpt_max_fi(
     panels,
     q_tot,
     sig_p,
@@ -993,7 +994,7 @@ def skin_station_tsai_wu_max_fi(
     station_index: int | None = None,
     strengths: dict | None = None,
 ) -> float:
-    """Maximum Tsai–Wu failure index over plies at one skin panel station."""
+    """Maximum CLPT-ply failure index (Hashin envelope, default) over plies at one skin station."""
     d = _skin_station_clpt_data(
         panels,
         q_tot,
@@ -1002,9 +1003,9 @@ def skin_station_tsai_wu_max_fi(
         station_index=station_index,
         strengths=strengths,
     )
-    fi_tw = d["fi_tw"]
-    nply = len(fi_tw)
-    return float(np.max(fi_tw)) if nply else 0.0
+    fi = d["fi"]
+    nply = len(fi)
+    return float(np.max(fi)) if nply else 0.0
 
 
 def optimize_skin_n_for_fi(
@@ -1033,7 +1034,7 @@ def optimize_skin_n_for_fi(
     ``run_section`` each time so σ and q stay coupled to skin stiffness.
 
     Minimizes areal mass ``ρ_areal = RHO_SKIN * t_skin`` (fixed ``ρ``, ``t_ply``)
-    by taking the **smallest** ``n`` with max Tsai–Wu FI ``< 1`` at the chosen station.
+    by taking the **smallest** ``n`` with max CLPT Hashin-envelope FI ``< 1`` at the chosen station.
 
     Returns ``None`` if no ``n`` in ``[n_min, n_max]`` is feasible.
     """
@@ -1063,7 +1064,7 @@ def optimize_skin_n_for_fi(
             dB_dx=dB_dx,
         )
         panels, q_tot, sig_p = out[0], out[3], out[4]
-        fi_max = skin_station_tsai_wu_max_fi(
+        fi_max = skin_station_clpt_max_fi(
             panels,
             q_tot,
             sig_p,
@@ -1086,7 +1087,7 @@ def optimize_skin_n_for_fi(
             break
 
     if best is None:
-        print("No feasible ply count in range (max Tsai-Wu FI >= 1 for all n).")
+        print("No feasible ply count in range (max Hashin FI >= 1 for all n).")
     else:
         print(
             f"Optimum (minimum n with FI < 1): n={best['n']}, "
@@ -1109,7 +1110,7 @@ def plot_clpt_laminate_stress_fi(
 ):
     """
     Educational figure: one skin station’s thin-wall (σ_xx, q) → membrane CLPT
-    (Nx, Nxy, M = 0) → ply σ, ε, Tsai–Wu FI. The right-hand text block explains
+    (Nx, Nxy, M = 0) → ply σ, ε, Hashin-envelope FI. The right-hand text block explains
     the workflow, why FI is usually tiny under default unit loads, and demo limits.
 
     **Model.** Laminate x = span, y = contour, σ_yy ≈ 0, τ_xy = q/t;
@@ -1125,7 +1126,7 @@ def plot_clpt_laminate_stress_fi(
     )
     p = d["p"]
     plies = d["plies"]
-    fi_tw = d["fi_tw"]
+    fi = d["fi"]
     eps0 = d["eps0"]
     kappa = d["kappa"]
     sig_lam = d["sig_lam"]
@@ -1181,31 +1182,31 @@ def plot_clpt_laminate_stress_fi(
     ax1.set_title("Ply ε — same material axes")
     ax1.legend(loc="lower right", fontsize=7)
 
-    ax2.bar(layers, fi_tw, width=0.65, label="Tsai–Wu FI", color="#bb8fce")
+    ax2.bar(layers, fi, width=0.65, label="Hashin envelope FI", color="#bb8fce")
     ax2.axhline(1.0, color="#e74c3c", ls="--", lw=1.0, label="FI = 1 (onset)")
     ax2.set_xticks(layers)
     ax2.set_xticklabels([f"P{k+1}" for k in range(nply)])
     ax2.set_ylabel("Failure index")
     ax2.set_title(
-        "Tsai–Wu per ply\n(FI < 1 ⇒ inside failure surface for this criterion)"
+        "Hashin envelope per ply\n(FI < 1 ⇒ inside failure surface for this mode mix)"
     )
     ax2.legend(loc="upper right", fontsize=8)
 
     ax3.axis("off")
-    fi_max = float(np.max(fi_tw)) if nply else 0.0
+    fi_max = float(np.max(fi)) if nply else 0.0
     summary = (
         "WHAT THIS FIGURE SHOWS\n"
         "  • One skin station: the thin-wall section solver gives spanwise σ_xx and\n"
         "    shear flow q along that panel; we map them to laminate membrane loads\n"
         "    Nx = σ_xx·t, Nxy = q with M = 0 (no bending through the thickness).\n"
         "  • ABD → mid-surface ε⁰, κ → ply mid-plane σ and ε in material axes.\n"
-        "  • Tsai–Wu FI uses SKIN_STRENGTH (Xt, Xc, …); FI = 1 lies on the failure surface.\n"
+        "  • Hashin envelope FI uses SKIN_STRENGTH (Xt, Xc, …); FI = 1 lies on a mode onset (envelope).\n"
         "\n"
         "THIS RUN (numbers)\n"
         f"  • Panel {p.label!r}  [panel_index={panel_index}]  station s-index {j}/{npt-1}\n"
         f"  • Skin thickness t = {t_wall*1000:.3f} mm\n"
         f"  • σ_xx (span) = {sig_xx/1e6:.4f} MPa    τ_xy = q/t = {tau_xy/1e6:.4f} MPa    q = {q_here:.4f} N/m\n"
-        f"  • max Tsai–Wu FI = {fi_max:.3e}  (expect ≪ 1 for default unit resultants)\n"
+        f"  • max Hashin envelope FI = {fi_max:.3e}  (expect ≪ 1 for default unit resultants)\n"
         "\n"
         "LIMITATIONS (demo)\n"
         "  • Demo stack is isotropic [0/90/90/0], not a real ±45 skin layup.\n"
@@ -1233,7 +1234,7 @@ def plot_clpt_laminate_stress_fi(
     )
 
     ttl = title or (
-        "CLT sanity check: one skin station → ply σ, ε, Tsai–Wu FI\n"
+        "CLT sanity check: one skin station → ply σ, ε, Hashin-envelope FI\n"
         "(membrane Nx, Nxy only; tune loads/strengths to see FI → 1)"
     )
     fig.suptitle(ttl, color="#e0e0e0", fontsize=10, y=0.995)
@@ -1522,7 +1523,7 @@ if __name__ == "__main__":
     print(f"  A11 = {A_clpt[0,0]:.4e} N/m   homogenized E1_eff ~ {homogenized_axial_modulus(plies_demo)/1e9:.2f} GPa")
     print(f"  ply1 sigma11 bottom/top MPa: {ply_sig[0][0][0]/1e6:.4f}, {ply_sig[0][1][0]/1e6:.4f}")
 
-    print("\n--- Skin ply-count search (min rho_areal s.t. max Tsai-Wu FI < 1) ---")
+    print("\n--- Skin ply-count search (min rho_areal s.t. max Hashin envelope FI < 1) ---")
     optimize_skin_n_for_fi(
         airfoil,
         [0.25, 0.60],
@@ -1591,7 +1592,7 @@ if __name__ == "__main__":
         legend_patches=legend_bend,
     )
 
-    # One skin panel, mid-chord station: CLPT ply σ, ε, Tsai–Wu FI
+    # One skin panel, mid-chord station: CLPT ply σ, ε, Hashin-envelope FI
     _first = cached[0][2]
     plot_clpt_laminate_stress_fi(
         _first[0],

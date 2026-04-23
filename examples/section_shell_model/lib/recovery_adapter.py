@@ -23,12 +23,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
 from .panel_mitc4_model import solve_panel_mitc4
-from .global_mitc4_assembly import solve_global_coupled_mitc4
+from .global_mitc4_assembly import NElements, solve_global_coupled_mitc4
 from .section_vlasov import SectionVlasovResult, compute_section_vlasov
 from .types import FieldProvenance, ProvenanceKind, SectionShellRecoveryBundle, ShellPanelResultants
 
@@ -325,10 +325,12 @@ def _mitc4_global_coupled_solve_from_thin_wall(
     sig_p: list,
     B: float,
     dB_dx: float,
-    n_elements_per_panel: int,
+    n_elements_per_panel: NElements,
     reference_panel_index: int,
     global_bc_mode: str = "legacy",
-    interface_constraint_mode: str = "shared",
+    interface_constraint_mode: str = "transformed_basis",
+    enforce_traction_balance_at_cusp: bool = False,
+    traction_penalty_alpha: float = 1e-2,
 ) -> tuple[list[list[ShellPanelResultants]], list[dict], ShellPanelResultants | None, SectionVlasovResult]:
     """
     Global-coupled MITC4 solve with shared interface nodes in one system.
@@ -374,6 +376,8 @@ def _mitc4_global_coupled_solve_from_thin_wall(
         n_elements_per_panel=n_elements_per_panel,
         bc_mode=global_bc_mode,
         interface_constraint_mode=interface_constraint_mode,
+        enforce_traction_balance_at_cusp=enforce_traction_balance_at_cusp,
+        traction_penalty_alpha=traction_penalty_alpha,
     )
 
     ref: ShellPanelResultants | None = None
@@ -381,6 +385,62 @@ def _mitc4_global_coupled_solve_from_thin_wall(
         panel_res = all_panel_results[reference_panel_index]
         ref = panel_res[len(panel_res) // 2]
     return all_panel_results, all_panel_diag, ref, vlasov
+
+
+def _merge_nose_panels(
+    panels: Sequence[Any],
+    q_tot: Sequence[np.ndarray],
+    sig_p: Sequence[np.ndarray],
+) -> tuple[list[Any], list[np.ndarray], list[np.ndarray]]:
+    """
+    Replace USkin C1 + LSkin C1 with one wrap-around ``Nose`` panel (spar_lower → LE → spar_upper).
+
+    The Bredt thin-wall model still uses two half-skins; this merge is for the shell
+    handoff so the leading edge is interior to one continuous polyline, not a 2-way MPC
+    interface between two panels.
+    """
+    _ensure_stress_imports()
+    from multi_cell_blade_section import Panel  # type: ignore[import-untyped]
+
+    i_usc1 = next((i for i, p in enumerate(panels) if getattr(p, "label", "") == "USkin C1"), None)
+    i_lsc1 = next((i for i, p in enumerate(panels) if getattr(p, "label", "") == "LSkin C1"), None)
+    if i_usc1 is None or i_lsc1 is None:
+        raise ValueError("merge_nose: USkin C1 and LSkin C1 must both be present in ``panels``")
+    usc1, lsc1 = panels[i_usc1], panels[i_lsc1]
+    le_u, le_l = np.asarray(usc1.nodes[0], dtype=float), np.asarray(lsc1.nodes[-1], dtype=float)
+    if not np.allclose(le_u, le_l, atol=1e-9, rtol=0.0):
+        raise ValueError(f"merge_nose: LE point mismatch: {le_u!r} vs {le_l!r}")
+    q_u, q_l = np.asarray(q_tot[i_usc1], dtype=float), np.asarray(q_tot[i_lsc1], dtype=float)
+    s_u, s_l = np.asarray(sig_p[i_usc1], dtype=float), np.asarray(sig_p[i_lsc1], dtype=float)
+    if len(q_u) != len(usc1.nodes) or len(q_l) != len(lsc1.nodes):
+        raise ValueError("merge_nose: q_tot length must match panel node count")
+    if len(s_u) != len(usc1.nodes) or len(s_l) != len(lsc1.nodes):
+        raise ValueError("merge_nose: sig_p length must match panel node count")
+    q_scale = max(float(np.max(np.abs(q_u))), float(np.max(np.abs(q_l))), 1.0)
+    # Bredt q can differ slightly at the LE where upper/lower polylines meet; 1% rel is enough.
+    if abs(q_l[-1] - q_u[0]) / q_scale > 0.01:
+        raise ValueError(
+            f"merge_nose: q seam mismatch at LE: {q_l[-1]:.6g} vs {q_u[0]:.6g} (rel>1%)"
+        )
+    s_scale = max(float(np.max(np.abs(s_u))), float(np.max(np.abs(s_l))), 1.0)
+    if abs(s_l[-1] - s_u[0]) / s_scale > 0.01:
+        raise ValueError(
+            f"merge_nose: sigma seam mismatch at LE: {s_l[-1]:.6g} vs {s_u[0]:.6g} (rel>1%)"
+        )
+    nose_nodes = np.vstack([lsc1.nodes, usc1.nodes[1:]])
+    q_n = np.concatenate([q_l, q_u[1:]])
+    s_n = np.concatenate([s_l, s_u[1:]])
+    nose = Panel(
+        nodes=nose_nodes,
+        lam=usc1.lam,
+        cell_id=int(getattr(usc1, "cell_id", 0)),
+        end_boom=usc1.end_boom,
+        label="Nose",
+    )
+    new_p = [nose] + [panels[i] for i in range(len(panels)) if i not in (i_usc1, i_lsc1)]
+    new_q = [q_n] + [np.asarray(q_tot[i], dtype=float) for i in range(len(panels)) if i not in (i_usc1, i_lsc1)]
+    new_s = [s_n] + [np.asarray(sig_p[i], dtype=float) for i in range(len(panels)) if i not in (i_usc1, i_lsc1)]
+    return new_p, new_q, new_s
 
 
 # ---------------------------------------------------------------------------
@@ -401,10 +461,13 @@ def run_section_with_mitc4_shell(
     B: float = 0.0,
     dB_dx: float = 0.0,
     reference_panel_index: int = 0,
-    n_elements_per_panel: int = 10,
+    n_elements_per_panel: NElements = 10,
     use_global_coupled: bool = True,
     global_bc_mode: str = "legacy",
-    interface_constraint_mode: str = "shared",
+    interface_constraint_mode: str = "transformed_basis",
+    enforce_traction_balance_at_cusp: bool = False,
+    traction_penalty_alpha: float = 1e-2,
+    merge_nose: bool = False,
 ) -> SectionShellRecoveryBundle:
     """
     Run thin-wall recovery + Vlasov warping + MITC4 panel solve.
@@ -420,6 +483,11 @@ def run_section_with_mitc4_shell(
 
     Parameters mirror ``run_section_with_shell_mapping``; add ``n_elements_per_panel``
     to control MITC4 mesh density along each panel contour.
+
+    merge_nose
+        If true, replace ``USkin C1`` and ``LSkin C1`` with a single ``Nose`` panel
+        (LE is interior, no 2-way interface there). Does not re-run the Bredt solve;
+        ``q_tot``/``sig_p`` are spliced at the LE seam.
     """
     _ensure_stress_imports()
     from multi_cell_blade_section import run_section  # type: ignore[import-untyped]
@@ -443,10 +511,15 @@ def run_section_with_mitc4_shell(
         q_primary, q_warp,
     ) = out
 
+    if merge_nose:
+        panels, q_tot, sig_p = _merge_nose_panels(panels, q_tot, sig_p)
+
     if use_global_coupled:
         all_panel_results, all_panel_diag, ref, vlasov = _mitc4_global_coupled_solve_from_thin_wall(
             airfoil, panels, webs_geom, q_tot, sig_p, B, dB_dx, n_elements_per_panel, reference_panel_index,
-            global_bc_mode, interface_constraint_mode
+            global_bc_mode, interface_constraint_mode,
+            enforce_traction_balance_at_cusp=enforce_traction_balance_at_cusp,
+            traction_penalty_alpha=traction_penalty_alpha,
         )
     else:
         all_panel_results, all_panel_diag, ref, vlasov = _mitc4_solve_from_thin_wall(
@@ -501,7 +574,8 @@ def run_section_both(
     n_elements_per_panel: int = 10,
     use_global_coupled: bool = True,
     global_bc_mode: str = "legacy",
-    interface_constraint_mode: str = "shared",
+    interface_constraint_mode: str = "transformed_basis",
+    merge_nose: bool = False,
 ) -> tuple[SectionShellRecoveryBundle, SectionShellRecoveryBundle]:
     """
     Call ``run_section()`` once and return both MVP and MITC4 bundles.
@@ -531,6 +605,9 @@ def run_section_both(
         y_sc, z_sc, areas, I_omega, gamma_y, gamma_z, GA_y, GA_z,
         q_primary, q_warp,
     ) = out
+
+    if merge_nose:
+        panels, q_tot, sig_p = _merge_nose_panels(panels, q_tot, sig_p)
 
     # MVP bundle
     ref_mvp = panel_station_shell_resultants(
@@ -623,6 +700,11 @@ def _panel_end_tangent(panel: Any, which: str) -> np.ndarray:
     return t / n
 
 
+def _normal_2d(t: np.ndarray) -> np.ndarray:
+    """90° CCW rotation of a 2-D tangent unit vector → panel outward normal in (Y,Z)."""
+    return np.array([-float(t[1]), float(t[0])], dtype=float)
+
+
 def _classify_boundary(label_i: str, label_j: str) -> str:
     is_web_i = "web" in label_i.lower()
     is_web_j = "web" in label_j.lower()
@@ -673,6 +755,29 @@ def _diag_boundary_edge_traction(diag: dict | None, which: str) -> tuple[float, 
     return float(side.get("Tx_int", 0.0)), float(side.get("Ts_int", 0.0))
 
 
+def _diag_boundary_edge_traction_stats(diag: dict | None, which: str) -> dict[str, float]:
+    """
+    Return mean and std of Tx near the interface boundary.
+
+    Uses near-boundary element samples (Tx_near) stored by the global solve.
+    Falls back to the single Tx_int value when samples are absent.
+    """
+    if not diag:
+        return {"Tx_mean": 0.0, "Tx_std": 0.0, "Tx_std_rel": 0.0, "n_samples": 0}
+    es = diag.get("interface_edge_set", {})
+    side = es.get(which, {})
+    near = side.get("Tx_near", None)
+    tx_int = float(side.get("Tx_int", 0.0))
+    if near and len(near) > 0:
+        arr = np.asarray(near, dtype=float)
+    else:
+        arr = np.array([tx_int], dtype=float)
+    mean_v = float(np.mean(arr))
+    std_v = float(np.std(arr)) if len(arr) > 1 else 0.0
+    std_rel = std_v / max(abs(mean_v), 1.0)
+    return {"Tx_mean": mean_v, "Tx_std": std_v, "Tx_std_rel": std_rel, "n_samples": len(arr)}
+
+
 def _is_web_label(label: str) -> bool:
     return "web" in label.lower()
 
@@ -684,6 +789,9 @@ def _interface_traction_residuals(
     ts_j: float,
     t_i: np.ndarray,
     t_j: np.ndarray,
+    t_ref: np.ndarray | None = None,
+    n_ref: np.ndarray | None = None,
+    scale_floor: float = 1.0,
 ) -> dict[str, float]:
     """
     Compute physically correct interface traction residuals.
@@ -703,15 +811,29 @@ def _interface_traction_residuals(
 
     Parameters
     ----------
-    tx_i, tx_j : spanwise tractions (already outward-normal signed)
-    ts_i, ts_j : contour tractions (already outward-normal signed)
-    t_i, t_j   : 2-D (Y,Z) unit contour tangent vectors at the junction endpoint
+    tx_i, tx_j   : spanwise tractions (already outward-normal signed)
+    ts_i, ts_j   : contour tractions (already outward-normal signed)
+    t_i, t_j     : 2-D (Y,Z) unit contour tangent vectors at the junction endpoint
+    t_ref, n_ref : cluster reference tangent/normal (2-D); used for component
+                   decomposition in the scaling denominator.  When None, t_i is used.
+    scale_floor  : minimum scale for relative normalisation — should be set to the
+                   maximum single-panel traction magnitude in the cluster so the
+                   denominator is not inflated by nearly-orthogonal tangents.
     """
     dTx = float(tx_i) + float(tx_j)
     t_i_arr = np.asarray(t_i, dtype=float)
     t_j_arr = np.asarray(t_j, dtype=float)
     dT_yz = float(ts_i) * t_i_arr + float(ts_j) * t_j_arr
     dT_yz_mag = float(np.linalg.norm(dT_yz))
+
+    # Use total traction magnitude (sqrt(Tx^2+Ts^2)) for the scaling denominator.
+    # This avoids denominator inflation when the two panel tangents are nearly
+    # orthogonal: a small YZ residual relative to the panel traction is meaningful
+    # even if individual Ts components are large with opposite projections.
+    T_i_mag = float(np.sqrt(float(tx_i) ** 2 + float(ts_i) ** 2))
+    T_j_mag = float(np.sqrt(float(tx_j) ** 2 + float(ts_j) ** 2))
+    scale_Ts = max(T_i_mag, T_j_mag, scale_floor)
+
     return {
         "Tx_i": float(tx_i),
         "Tx_j": float(tx_j),
@@ -721,6 +843,7 @@ def _interface_traction_residuals(
         "dT_yz_y": float(dT_yz[0]),
         "dT_yz_z": float(dT_yz[1]) if len(dT_yz) > 1 else 0.0,
         "dT_yz_mag": dT_yz_mag,
+        "scale_Ts": scale_Ts,
     }
 
 
@@ -733,11 +856,13 @@ def _secondary_traction_thresholds(boundary_type: str) -> tuple[float, float]:
     return 0.10, 0.15
 
 
-def _build_geometric_interfaces(panels: list, tol: float = 1e-6) -> list[dict]:
+def _build_endpoint_clusters_raw(panels: list, tol: float = 1e-6) -> list[list[dict]]:
     """
-    Build interface pairs from geometric endpoint proximity.
+    Single-source clustering of panel endpoints by geometric proximity.
 
-    Returns list of dicts: {pi, pj, end_i, end_j, point}.
+    Returns list of clusters; each cluster is [{pi, end, pt}, ...].
+    Both _build_geometric_interfaces and _build_endpoint_clusters use this
+    helper to guarantee topology consistency.
     """
     endpoints: list[dict] = []
     for pi, p in enumerate(panels):
@@ -746,9 +871,6 @@ def _build_geometric_interfaces(panels: list, tol: float = 1e-6) -> list[dict]:
             if np.any(~np.isfinite(pt)):
                 continue
             endpoints.append({"pi": pi, "end": which, "pt": pt})
-
-    # Cluster coincident endpoints, then generate deterministic pair graph
-    # (supports >2-way junctions).
     clusters: list[list[dict]] = []
     for ep in endpoints:
         placed = False
@@ -759,14 +881,27 @@ def _build_geometric_interfaces(panels: list, tol: float = 1e-6) -> list[dict]:
                 break
         if not placed:
             clusters.append([ep])
+    return clusters
+
+
+def _build_geometric_interfaces(panels: list, tol: float = 1e-6) -> list[dict]:
+    """
+    Build interface pairs from geometric endpoint proximity.
+
+    Returns list of dicts: {pi, pj, end_i, end_j, point, cluster_id, cluster_size}.
+    cluster_size is the total number of panel-endpoints meeting at that junction
+    (2 for a 2-way interface, 3 for a T-junction, etc.).
+    """
+    clusters = _build_endpoint_clusters_raw(panels, tol)
 
     interfaces: list[dict] = []
     seen_pairs: set[tuple[int, str, int, str]] = set()
-    for c in clusters:
-        if len(c) < 2:
+    for cid, c in enumerate(clusters):
+        cluster_size = len(c)
+        if cluster_size < 2:
             continue
-        for i in range(len(c)):
-            for j in range(i + 1, len(c)):
+        for i in range(cluster_size):
+            for j in range(i + 1, cluster_size):
                 ei, ej = c[i], c[j]
                 if ei["pi"] == ej["pi"]:
                     continue
@@ -782,10 +917,17 @@ def _build_geometric_interfaces(panels: list, tol: float = 1e-6) -> list[dict]:
                         "end_i": str(ei["end"]),
                         "end_j": str(ej["end"]),
                         "point": 0.5 * (ei["pt"] + ej["pt"]),
+                        "cluster_id": int(cid),
+                        "cluster_size": int(cluster_size),
                     }
                 )
     interfaces.sort(key=lambda d: (d["pi"], d["pj"], d["end_i"], d["end_j"]))
     return interfaces
+
+
+def _build_endpoint_clusters(panels: list, tol: float = 1e-6) -> list[list[dict]]:
+    """Cluster coincident panel endpoints: [{pi,end,pt}, ...] per junction."""
+    return _build_endpoint_clusters_raw(panels, tol)
 
 
 def check_panel_equilibrium(
@@ -906,10 +1048,23 @@ def check_panel_equilibrium(
                 diag_j = all_panel_mitc4_diagnostics[pj]
         Fx_i, Fs_i = _diag_boundary_force(diag_i, end_i)
         Fx_j, Fs_j = _diag_boundary_force(diag_j, end_j)
-        Fx_j_norm = Fx_j
-        Fs_j_norm = nxy_sign * Fs_j
-        dFx_rel = abs(Fx_i - Fx_j_norm) / max(abs(Fx_i), abs(Fx_j_norm), 1.0)
-        dFs_rel = abs(Fs_i - Fs_j_norm) / max(abs(Fs_i), abs(Fs_j_norm), 1.0)
+        mode_i = str((diag_i or {}).get("interface_constraint_mode", "shared"))
+        mode_j = str((diag_j or {}).get("interface_constraint_mode", "shared"))
+        _cluster_basis_modes = {"transformed_basis", "shared_rotated"}
+        if _cluster_basis_modes & {mode_i, mode_j}:
+            # Cluster-basis modes (transformed_basis, shared_rotated) store outward-
+            # normal-signed edge tractions as Fx (spanwise) and Fs (contour).
+            # Spanwise X-axis is common to all panels → Newton III: Fx_i + Fx_j = 0
+            # with NO orientation mapping on the spanwise channel.
+            # Contour ŝ is panel-specific → nxy_sign maps slave ŝ onto master ŝ.
+            Fs_j_norm = nxy_sign * Fs_j
+            dFx_rel = abs(Fx_i + Fx_j) / max(abs(Fx_i), abs(Fx_j), 1.0)
+            dFs_rel = abs(Fs_i + Fs_j_norm) / max(abs(Fs_i), abs(Fs_j_norm), 1.0)
+        else:
+            Fx_j_norm = Fx_j
+            Fs_j_norm = nxy_sign * Fs_j
+            dFx_rel = abs(Fx_i - Fx_j_norm) / max(abs(Fx_i), abs(Fx_j_norm), 1.0)
+            dFs_rel = abs(Fs_i - Fs_j_norm) / max(abs(Fs_i), abs(Fs_j_norm), 1.0)
         pass_react_nx = dFx_rel <= tol_react_nx
         pass_react_nxy = dFs_rel <= tol_react_nxy
 
@@ -935,9 +1090,20 @@ def check_panel_equilibrium(
             # Geometry-only traction vector residuals (see _interface_traction_residuals).
             tx_i_val, ts_i_val = _diag_boundary_edge_traction(diag_i, end_i)
             tx_j_val, ts_j_val = _diag_boundary_edge_traction(diag_j, end_j)
-            trac_res = _interface_traction_residuals(tx_i_val, ts_i_val, tx_j_val, ts_j_val, t_i, t_j)
+            # scale_floor: max single-panel traction magnitude so orthogonal-tangent
+            # inflation is avoided in the normalisation denominator.
+            _scale_floor = max(
+                float(np.sqrt(tx_i_val ** 2 + ts_i_val ** 2)),
+                float(np.sqrt(tx_j_val ** 2 + ts_j_val ** 2)),
+                1.0,
+            )
+            trac_res = _interface_traction_residuals(
+                tx_i_val, ts_i_val, tx_j_val, ts_j_val, t_i, t_j,
+                t_ref=t_ref, n_ref=_normal_2d(t_ref),
+                scale_floor=_scale_floor,
+            )
             scale_Tx = max(abs(trac_res["Tx_i"]), abs(trac_res["Tx_j"]), 1.0)
-            scale_Ts = max(abs(trac_res["Ts_i"]), abs(trac_res["Ts_j"]), 1.0)
+            scale_Ts = trac_res.get("scale_Ts", max(abs(trac_res["Ts_i"]), abs(trac_res["Ts_j"]), 1.0))
             dTx_rel = abs(trac_res["dTx"]) / scale_Tx
             dT_yz_rel = trac_res["dT_yz_mag"] / scale_Ts
             nxy_source = "traction-vector-strict"
@@ -978,6 +1144,8 @@ def check_panel_equilibrium(
             "end_j": end_j,
             "label_i": str(label_i),
             "label_j": str(label_j),
+            "cluster_id": int(iface.get("cluster_id", -1)),
+            "cluster_size": int(iface.get("cluster_size", 2)),
             "orientation": orient,
             "boundary_type": boundary_type,
             "Nx_a": Nx_a,
@@ -1031,13 +1199,127 @@ def check_panel_equilibrium(
     return results
 
 
+def check_cluster_equilibrium(
+    panels: list,
+    *,
+    all_panel_mitc4_diagnostics: list[dict] | None = None,
+    endpoint_tol: float = 1e-6,
+) -> list[dict]:
+    """
+    Cluster-level traction equilibrium (supports 2-way and 3-way junctions).
+
+    Residuals:
+      Tx_sum   = Σ Tx_int
+      T_yz_sum = Σ Ts_int * s_hat
+    """
+    clusters = _build_endpoint_clusters(panels, tol=endpoint_tol)
+    if not all_panel_mitc4_diagnostics:
+        return []
+    out: list[dict] = []
+    for cid, c in enumerate(clusters):
+        if len(c) < 2:
+            continue
+        tx_terms: list[float] = []
+        ts_terms: list[float] = []
+        t_sum = np.zeros(2, dtype=float)
+        members: list[str] = []
+        # Compute collinearity of this cluster (5° tolerance).
+        _tangents = [_panel_end_tangent(panels[int(ep["pi"])], str(ep["end"])) for ep in c]
+        _collinear = True
+        if len(_tangents) >= 2:
+            _t0 = _tangents[0]
+            _tol_rad = 5.0 * np.pi / 180.0
+            for _t in _tangents[1:]:
+                if float(np.arccos(np.clip(abs(float(np.dot(_t0, _t))), 0.0, 1.0))) > _tol_rad:
+                    _collinear = False
+                    break
+        # Build members first so they appear even when diagnostics are missing.
+        for ep in c:
+            pi = int(ep["pi"])
+            end = str(ep["end"])
+            lbl = str(getattr(panels[pi], "label", None) or f"panel_{pi}")
+            members.append(f"{lbl}:{end}")
+            if pi >= len(all_panel_mitc4_diagnostics):
+                continue
+            di = all_panel_mitc4_diagnostics[pi] or {}
+            tx, ts = _diag_boundary_edge_traction(di, end)
+            t = _panel_end_tangent(panels[pi], end)
+            t_sum = t_sum + ts * t
+            tx_terms.append(float(tx))
+            ts_terms.append(float(ts))
+        if not tx_terms:
+            # Cluster exists geometrically but edge traction data is unavailable
+            # for all member panels — emit a diagnostic row rather than silently
+            # dropping so the missing junction is visible in the output.
+            out.append(
+                {
+                    "cluster_id": int(cid),
+                    "n_panels": int(len(c)),
+                    "members": members,
+                    "cluster_collinear": bool(_collinear),
+                    "status": "insufficient_data",
+                    "Tx_sum": float("nan"),
+                    "T_yz_sum_y": float("nan"),
+                    "T_yz_sum_z": float("nan"),
+                    "Tx_rel_cluster": float("nan"),
+                    "T_yz_rel_cluster": float("nan"),
+                }
+            )
+            continue
+        tx_sum = float(np.sum(tx_terms))
+        t_yz_mag = float(np.linalg.norm(t_sum))
+        # Scale by max single-panel total traction magnitude (Tx^2 + Ts^2)^0.5 so
+        # orthogonal-tangent inflation in the denominator is avoided.
+        panel_T_mags = [
+            float(np.sqrt(tx ** 2 + ts ** 2))
+            for tx, ts in zip(tx_terms, ts_terms)
+        ]
+        cluster_scale = max(max(panel_T_mags), 1.0)
+        out.append(
+            {
+                "cluster_id": int(cid),
+                "n_panels": int(len(tx_terms)),
+                "members": members,
+                "cluster_collinear": bool(_collinear),
+                "status": "ok",
+                "Tx_sum": tx_sum,
+                "T_yz_sum_y": float(t_sum[0]),
+                "T_yz_sum_z": float(t_sum[1]),
+                "Tx_rel_cluster": abs(tx_sum) / cluster_scale,
+                "T_yz_rel_cluster": t_yz_mag / cluster_scale,
+            }
+        )
+    return out
+
+
 def build_load_reaction_audit(all_panel_mitc4_diagnostics: list[dict] | None) -> dict[str, float]:
     """
     Summarize panel/global load-reaction consistency from diagnostics.
+
+    Returns two global balance metrics:
+    - global_force_balance_rel: panel-sum metric (informational only; double-counts
+      shared junction reactions in shared-DOF mode — expect ~0.5 for a 2-panel section).
+    - global_force_balance_rel_at_fixed: authoritative metric using the sum of
+      r_full at truly fixed (RBM-support) UX DOFs vs total applied load.
+      Should be ~0 (< 1e-6) for a correctly solved global assembly.
     """
+    _empty = {
+        "n_panels": 0.0,
+        "max_rel_mismatch_endpoint": 0.0,
+        "mean_rel_mismatch_endpoint": 0.0,
+        "max_rel_mismatch_target": 0.0,
+        "mean_rel_mismatch_target": 0.0,
+        "global_force_balance_rel": 0.0,
+        "global_force_balance_rel_at_fixed": float("nan"),
+        "global_force_balance_rel_delta": float("nan"),
+    }
     if not all_panel_mitc4_diagnostics:
-        return {"n_panels": 0.0, "max_rel_mismatch": 0.0, "mean_rel_mismatch": 0.0}
-    rel_vals: list[float] = []
+        return _empty
+    rel_endpoint: list[float] = []
+    rel_target: list[float] = []
+    sum_fx = 0.0
+    sum_rx = 0.0
+    sum_fxt = 0.0
     for di in all_panel_mitc4_diagnostics:
         if not di:
             continue
@@ -1046,16 +1328,57 @@ def build_load_reaction_audit(all_panel_mitc4_diagnostics: list[dict] | None) ->
         if "start" not in br or "end" not in br:
             continue
         fx = float(lt.get("Fx_total", 0.0))
+        fx_t = float(lt.get("Fx_target", fx))
         fs = float(lt.get("Fs_total", 0.0))
         rx = float(br["start"].get("Fx", 0.0) + br["end"].get("Fx", 0.0))
         rs = float(br["start"].get("Fs", 0.0) + br["end"].get("Fs", 0.0))
         ex = abs(rx + fx) / max(abs(rx), abs(fx), 1.0)
+        ex_t = abs(rx + fx_t) / max(abs(rx), abs(fx_t), 1.0)
         es = abs(rs + fs) / max(abs(rs), abs(fs), 1.0)
-        rel_vals.append(max(ex, es))
-    if not rel_vals:
-        return {"n_panels": 0.0, "max_rel_mismatch": 0.0, "mean_rel_mismatch": 0.0}
+        rel_endpoint.append(max(ex, es))
+        rel_target.append(max(ex_t, es))
+        sum_fx += fx
+        sum_fxt += fx_t
+        sum_rx += rx
+    if not rel_endpoint:
+        return _empty
+    global_force_balance_rel = abs(sum_rx + sum_fxt) / max(abs(sum_rx), abs(sum_fxt), 1.0)
+
+    # Authoritative global balance: fixed-DOF UX reactions vs total applied UX load.
+    # global_reaction_at_fixed_UX is stored by the global solve in each panel's
+    # diagnostics. Extract it from the first panel that has it.
+    sum_rx_fixed_ux: float | None = None
+    for di in all_panel_mitc4_diagnostics:
+        if di and "global_reaction_at_fixed_UX" in di:
+            sum_rx_fixed_ux = float(di["global_reaction_at_fixed_UX"])
+            break
+    if sum_rx_fixed_ux is not None:
+        global_force_balance_rel_at_fixed = abs(sum_rx_fixed_ux + sum_fxt) / max(
+            abs(sum_rx_fixed_ux), abs(sum_fxt), 1.0
+        )
+        modes = {
+            str(di.get("interface_constraint_mode", ""))
+            for di in all_panel_mitc4_diagnostics
+            if di
+        }
+        _cluster_basis_modes = {"transformed_basis", "shared_rotated"}
+        if modes and modes <= _cluster_basis_modes:
+            # In cluster-basis modes panel endpoint reactions are traction-derived
+            # panel contributions; use fixed-DOF global balance as the canonical
+            # global metric to avoid panel-sum double counting/partition ambiguity.
+            global_force_balance_rel = global_force_balance_rel_at_fixed
+        global_force_balance_rel_delta = abs(global_force_balance_rel - global_force_balance_rel_at_fixed)
+    else:
+        global_force_balance_rel_at_fixed = float("nan")
+        global_force_balance_rel_delta = float("nan")
+
     return {
-        "n_panels": float(len(rel_vals)),
-        "max_rel_mismatch": float(max(rel_vals)),
-        "mean_rel_mismatch": float(np.mean(rel_vals)),
+        "n_panels": float(len(rel_endpoint)),
+        "max_rel_mismatch_endpoint": float(max(rel_endpoint)),
+        "mean_rel_mismatch_endpoint": float(np.mean(rel_endpoint)),
+        "max_rel_mismatch_target": float(max(rel_target)),
+        "mean_rel_mismatch_target": float(np.mean(rel_target)),
+        "global_force_balance_rel": float(global_force_balance_rel),
+        "global_force_balance_rel_at_fixed": float(global_force_balance_rel_at_fixed),
+        "global_force_balance_rel_delta": float(global_force_balance_rel_delta),
     }

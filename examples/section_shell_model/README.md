@@ -20,7 +20,9 @@ This creates `examples/section_shell_model/outputs/` and writes PNG figures (def
 | `mesh_shell_strips.png` | Panel midlines as linear strip elements; nodes; cell labels |
 | `section_shell_demo_shear_flow.png` | Shear flow `q(s)` ribbons (thin-wall recovery) |
 | `section_shell_demo_axial_stress.png` | Axial stress `σ_xx(s)` ribbons |
-| `clpt_ply_tsai_wu.png` | Ply σ, ε, Tsai–Wu FI at reference skin station |
+| `clpt_ply_hashin.png` | Ply σ, ε, Hashin-envelope FI at reference skin station |
+| `clpt_fi_on_section_geometry.png` | Per-MITC4-element max ply Hashin FI on airfoil (y,z) |
+| `mitc4_hashin_fi_heatmap.png` | Panel vs element index heatmap of same FI field |
 | `reference_panel_q_sigma_vs_s.png` | `q` and `σ_xx` vs contour `s` on reference panel |
 
 ## Layout
@@ -29,7 +31,7 @@ This creates `examples/section_shell_model/outputs/` and writes PNG figures (def
 |------|------|
 | `lib/types.py` | `ShellPanelResultants`, `SectionShellRecoveryBundle`, provenance enums |
 | `lib/recovery_adapter.py` | Wraps `run_section` and builds shell DTOs |
-| `lib/local_clpt_shell.py` | `solve_station_clpt_shell` — ply Tsai–Wu FI from resultants |
+| `lib/local_clpt_shell.py` | `solve_station_clpt_shell` — ply Hashin-envelope FI from resultants |
 | `lib/example_plots.py` | PNG helpers (mesh, stress ribbons, CLPT, along-panel) |
 | `docs/SHELL_MODEL.md` | Design notes, MVP limits, refactor path |
 | `tests/` | Contract + FI regression tests |
