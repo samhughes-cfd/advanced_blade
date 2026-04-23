@@ -1,4 +1,4 @@
-"""Precompute stage implementations (section_geometry through section_buckling)."""
+"""Precompute stage implementations (geometry, properties, global beam, optimisation, optional buckling stub)."""
 
 from __future__ import annotations
 
@@ -367,7 +367,7 @@ def beam_model_impl(
     bg_override: Any | None = None,
     grid_meta: Mapping[str, Any] | None = None,
 ) -> BeamModelOutputs:
-    out_stage = (out_dir / "beam_model").resolve()
+    out_stage = (out_dir / "global_beam_model").resolve()
     out_stage.mkdir(parents=True, exist_ok=True)
 
     from blade_precompute.global_beam_model.api import BeamAnalysis
@@ -667,11 +667,8 @@ def section_buckling_impl(
     bg_override: Any | None = None,
     grid_meta: Mapping[str, Any] | None = None,
 ) -> SectionBucklingOutputs:
-    out_stage = (out_dir / "section_buckling").resolve()
-    out_stage.mkdir(parents=True, exist_ok=True)
-
     summary_json = write_json(
-        out_stage / "summary.json",
+        out_dir / "section_buckling_skip.json",
         {
             "skipped": True,
             "reason": (

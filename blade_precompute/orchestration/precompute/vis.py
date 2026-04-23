@@ -83,7 +83,7 @@ def plot_section_properties_station(section_def: Any, res: Any, out_png: Path) -
     plt.close(fig)
 
 
-# Uniform spanwise sample count for all beam_model PNGs (Gauss, nodal, and section recovery
+# Uniform spanwise sample count for all global_beam_model PNGs (Gauss, nodal, and section recovery
 # series are linearly interpolated to this grid so x-axes are aligned across figures).
 BEAM_SPAN_PLOT_SAMPLES: int = 400
 
@@ -94,7 +94,7 @@ def write_beam_model_pngs(
     res: Any,
     loads: Any,
 ) -> list[Path]:
-    """Generate standard beam_model PNGs; returns written paths."""
+    """Generate standard global_beam_model PNGs; returns written paths."""
     png_paths: list[Path] = []
     try:
         from blade_precompute.global_beam_model.interface import plot as bmplot
@@ -211,7 +211,7 @@ class BeamModelOutputsVis:
         self._results = results
 
     def plot(self, mode: str = "default") -> None:
-        _display_png_paths(list(self._results.png_paths), title="beam_model")
+        _display_png_paths(list(self._results.png_paths), title="global_beam_model")
 
 
 class SectionOptimisationOutputsVis:
@@ -227,4 +227,4 @@ class SectionBucklingOutputsVis:
         self._results = results
 
     def plot(self, mode: str = "default") -> None:
-        _display_png_paths(list(self._results.png_paths), title="section_buckling")
+        _display_png_paths(list(self._results.png_paths), title="section_buckling_skip")

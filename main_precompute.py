@@ -17,8 +17,6 @@ from blade_precompute.orchestration.precompute import (
     BeamModelStage,
     GridConfig,
     LinspaceSpec,
-    SectionBucklingParams,
-    SectionBucklingStage,
     SectionGeometryParams,
     SectionGeometryStage,
     SectionOptimisationParams,
@@ -158,21 +156,6 @@ def main() -> int:
     )
     sp = sp_stage.execute().get_results()
 
-    sb_stage = SectionBucklingStage(
-        params=SectionBucklingParams(
-            inp=inp_geom,
-            out_dir=job,
-            blade_yaml=blade_yaml_resolved,
-            plot_station_spec=PLOT_STATIONS,
-            orchestration=orch,
-            buckling_length_mode=str(BUCKLING_LENGTH_MODE),
-            buckling_member_length_m=BUCKLING_MEMBER_LENGTH_M,
-            bg_override=bg_struct,
-            grid_meta={"type": "structural", "linspace": sspec},
-        )
-    )
-    sb = sb_stage.execute().get_results()
-
     bm_stage = BeamModelStage(
         params=BeamModelParams(
             inp=inp_geom,
@@ -215,8 +198,17 @@ def main() -> int:
             "component_materials": orch.component_materials.to_dict(),
             "section_geometry": sg,
             "section_properties": sp,
-            "section_buckling": sb,
-            "beam_model": bm,
+            "section_buckling": {
+                "skipped": True,
+                "reason": (
+                    "GBT section buckling is not run from main_precompute. "
+                    "Use examples/section_buckling and examples/section_beam_model."
+                ),
+                "examples": ["examples/section_buckling", "examples/section_beam_model"],
+                "buckling_length_mode": str(BUCKLING_LENGTH_MODE),
+                "buckling_member_length_m": BUCKLING_MEMBER_LENGTH_M,
+            },
+            "global_beam_model": bm,
             "section_optimisation": do,
         },
     )
