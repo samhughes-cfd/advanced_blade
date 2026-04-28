@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..core.types import K7Array, SectionStation
-from ..k7_interpolation import K7Interpolator
+from ..k7_interpolation import K7Interpolator, K6Interpolator
 
 
 def _sort_stations(stations: Sequence[SectionStation]) -> tuple[NDArray[np.float64], List[int]]:
@@ -26,25 +26,13 @@ def interp_matrix(
     z_query: NDArray[np.float64],
     stations: Sequence[SectionStation],
 ) -> NDArray[np.float64]:
-    """Piecewise-linear ``K6`` at ``z_query``; shape ``(n, 6, 6)``."""
+    """PCHIP-interpolated ``K6`` at ``z_query``; shape ``(n, 6, 6)``."""
     if len(stations) < 2:
         raise ValueError("interp_matrix requires at least two SectionStation entries.")
     zs, order = _sort_stations(stations)
     mats = np.stack([stations[i].K6 for i in order], axis=0)
-
     zq = np.asarray(z_query, dtype=np.float64).ravel()
-    out = np.zeros((zq.shape[0], 6, 6), dtype=np.float64)
-    for k, z in enumerate(zq):
-        if z <= zs[0]:
-            out[k] = mats[0]
-        elif z >= zs[-1]:
-            out[k] = mats[-1]
-        else:
-            j = int(np.searchsorted(zs, z, side="right"))
-            z0, z1 = zs[j - 1], zs[j]
-            a = (z - z0) / (z1 - z0)
-            out[k] = (1.0 - a) * mats[j - 1] + a * mats[j]
-    return out
+    return K6Interpolator(zs, mats).interpolate(zq, allow_extrapolation=True)
 
 
 def interp_K7(
@@ -117,6 +105,8 @@ def stations_from_arrays(
     z: NDArray[np.float64],
     K6: NDArray[np.float64],
     K7: NDArray[np.float64] | None = None,
+    *,
+    validate: bool = False,
 ) -> List[SectionStation]:
     """Build ``SectionStation`` list from tabulated ``z`` and ``K6`` / optional ``K7``."""
     z = np.asarray(z, dtype=np.float64).ravel()
@@ -125,6 +115,11 @@ def stations_from_arrays(
         K = K[None, ...]
     if K.shape[0] != z.shape[0]:
         raise ValueError("K6 first dim must match z length.")
+    if validate:
+        from .stiffness_validation import validate_k6_k7_stacks
+
+        validate_k6_k7_stacks(K, K7, strict=True)
+
     if K7 is None:
         return [SectionStation(z=float(z[i]), K6=K[i].copy()) for i in range(z.shape[0])]
     K7a = np.asarray(K7, dtype=np.float64)

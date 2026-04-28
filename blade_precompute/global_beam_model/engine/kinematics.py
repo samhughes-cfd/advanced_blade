@@ -275,3 +275,113 @@ def quat_align_axis_to_vector(
     w = np.cos(half)
     si = np.sin(half)
     return quat_normalize(np.array([w, axis_rot[0] * si, axis_rot[1] * si, axis_rot[2] * si], dtype=np.float64))
+
+
+# ---------------------------------------------------------------------------
+# Complex-step helpers
+# Used by element.py for the CS gradient (primary NR force-vector path).
+# These functions accept complex-dtype arrays; they must NOT use np.linalg.norm
+# (which returns a real-valued result for complex inputs, breaking CS) nor
+# force dtype=np.float64 on outputs.
+# ---------------------------------------------------------------------------
+
+def _cs_norm(v: np.ndarray) -> np.complexfloating:
+    """Non-conjugate L2 norm for complex-step: sqrt(v·v) not sqrt(v*·v)."""
+    return np.sqrt(np.sum(v * v))
+
+
+def _skew_cs(v: np.ndarray) -> np.ndarray:
+    """Skew-symmetric matrix accepting complex entries (dtype inferred from v)."""
+    x, y, z = v[0], v[1], v[2]
+    return np.array([[0 * x, -z, y], [z, 0 * y, -x], [-y, x, 0 * z]])
+
+
+def _quat_mul_cs(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Hamilton product preserving complex dtype (does not force float64)."""
+    aw, ax, ay, az = a[0], a[1], a[2], a[3]
+    bw, bx, by, bz = b[0], b[1], b[2], b[3]
+    return np.array([
+        aw * bw - ax * bx - ay * by - az * bz,
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+    ])
+
+
+def _quat_to_rotmat_cs(q: np.ndarray) -> np.ndarray:
+    """Rotation matrix from quaternion; accepts complex quaternion components."""
+    w, x, y, z = q[0], q[1], q[2], q[3]
+    return np.array([
+        [1 - 2 * (y * y + z * z),  2 * (x * y - w * z),      2 * (x * z + w * y)],
+        [2 * (x * y + w * z),       1 - 2 * (x * x + z * z),  2 * (y * z - w * x)],
+        [2 * (x * z - w * y),       2 * (y * z + w * x),       1 - 2 * (x * x + y * y)],
+    ])
+
+
+def exp_so3_cs(theta: np.ndarray) -> np.ndarray:
+    """
+    Rodrigues matrix exponential accepting complex theta for complex-step.
+
+    Uses the non-conjugate norm ``_cs_norm`` so that the imaginary component
+    of ``theta`` propagates correctly through the derivative chain.
+    """
+    t = _cs_norm(theta)
+    K = _skew_cs(theta)
+    if abs(float(np.real(t))) < 1e-14:
+        return np.eye(3, dtype=complex) + K
+    s = np.sin(t)
+    c = np.cos(t)
+    return np.eye(3, dtype=complex) + (s / t) * K + ((1.0 - c) / (t * t)) * (K @ K)
+
+
+def relative_rotation_vector_cs(q_from: np.ndarray, q_to: np.ndarray) -> np.ndarray:
+    """
+    Relative rotation vector log(R_from^T R_to) via rotation-matrix logarithm.
+
+    Accepts complex quaternion inputs for complex-step differentiation.
+    Uses the matrix-log route (rotation matrix trace → angle → axis) rather
+    than the quaternion-log route so that numpy's native complex ``arccos``
+    propagates derivatives correctly.
+    """
+    R_from = _quat_to_rotmat_cs(np.asarray(q_from, dtype=complex))
+    R_to = _quat_to_rotmat_cs(np.asarray(q_to, dtype=complex))
+    R_rel = R_from.T @ R_to
+
+    # cos(phi) = (trace - 1) / 2
+    cos_phi = (np.trace(R_rel) - 1.0) / 2.0
+    # Clamp real part to avert domain error; imaginary part carries the derivative.
+    cos_r_clamped = float(np.clip(float(np.real(cos_phi)), -1.0 + 1e-12, 1.0 - 1e-12))
+    phi_mag = np.arccos(cos_r_clamped + 1j * float(np.imag(cos_phi)))
+
+    # Axial vector from skew-symmetric part: (R - R^T)/2 = sin(phi) * [n_hat]_x
+    Skew = (R_rel - R_rel.T) / 2.0
+    ax = np.array([Skew[2, 1], Skew[0, 2], Skew[1, 0]])
+
+    phi_r = float(np.real(phi_mag))
+    if phi_r < 1e-9:
+        return 2.0 * ax  # small-angle: phi ≈ 2 * axial(skew)
+    return (phi_mag / np.sin(phi_mag)) * ax
+
+
+def update_orientation_cs(q: np.ndarray, dtheta: np.ndarray) -> np.ndarray:
+    """
+    Left-invariant quaternion update supporting complex ``dtheta`` for complex-step.
+
+    For ``dtheta = 1j * h * e_k`` the result is a complex quaternion whose
+    imaginary part is the quaternion sensitivity to spin DOF k.
+    No renormalisation is applied (not meaningful for complex quaternions).
+    """
+    dtheta_c = np.asarray(dtheta, dtype=complex)
+    half = 0.5 * dtheta_c
+    mag = _cs_norm(half)
+    if abs(float(np.real(mag))) < 1e-14:
+        dq = np.array([1.0 + 0j, half[0], half[1], half[2]])
+    else:
+        s_mag = np.sin(mag)
+        dq = np.array([
+            np.cos(mag),
+            s_mag * half[0] / mag,
+            s_mag * half[1] / mag,
+            s_mag * half[2] / mag,
+        ])
+    return _quat_mul_cs(dq, np.asarray(q, dtype=complex))

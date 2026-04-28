@@ -31,8 +31,8 @@ Torque::
 
     T(z_i) = ∫_{z_i}^{z_tip} m_x(s) ds.
 
-Axial force ``N`` is **not** inferred from ``q_y,q_z``; it is returned as zeros unless
-extended later with ``q_x``.
+Axial force ``N`` is filled from an optional line load ``q_x`` [N/m] (same
+cantilever-to-tip trapezoidal rule as shear). If ``q_x`` is omitted, ``N`` is zeros.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ class IntegratedResultants:
 
 
 class DistributedLoadIntegrator:
-    """Integrate ``(q_y, q_z, m_x)`` along ``z`` into ``(N, Vy, Vz, My, Mz, T)``."""
+    """Integrate ``(q_x optional, q_y, q_z, m_x)`` along ``z`` into ``(N, Vy, Vz, My, Mz, T)``."""
 
     @staticmethod
     def integrate(
@@ -99,13 +99,15 @@ class DistributedLoadIntegrator:
         q_y: NDArray[np.float64],
         q_z: NDArray[np.float64],
         m_x: NDArray[np.float64],
+        q_x: NDArray[np.float64] | None = None,
     ) -> IntegratedResultants:
         z = np.asarray(z, dtype=np.float64).ravel()
         q_y = np.asarray(q_y, dtype=np.float64).ravel()
         q_z = np.asarray(q_z, dtype=np.float64).ravel()
         m_x = np.asarray(m_x, dtype=np.float64).ravel()
-        if not (z.size == q_y.size == q_z.size == m_x.size):
-            raise ValueError("z, q_y, q_z, m_x must have the same length.")
+        n_z = int(z.size)
+        if n_z == 0 or not (n_z == q_y.size == q_z.size == m_x.size):
+            raise ValueError("z, q_y, q_z, m_x must have the same non-zero length.")
         if z.size < 2:
             raise ValueError("Need at least two z stations.")
         if np.any(np.diff(z) <= 0.0):
@@ -116,7 +118,13 @@ class DistributedLoadIntegrator:
         T = _trapz_piecewise_to_tip(z, m_x)
         My = _trapz_piecewise_to_tip(z, Vz)
         Mz = -_trapz_piecewise_to_tip(z, Vy)
-        N = np.zeros_like(z, dtype=np.float64)
+        if q_x is None:
+            N = np.zeros_like(z, dtype=np.float64)
+        else:
+            qxa = np.asarray(q_x, dtype=np.float64).ravel()
+            if qxa.shape[0] != n_z:
+                raise ValueError("q_x must have the same length as z when provided.")
+            N = _trapz_piecewise_to_tip(z, qxa)
         return IntegratedResultants(z=z, N=N, Vy=Vy, Vz=Vz, My=My, Mz=Mz, T=T)
 
     @staticmethod
@@ -125,6 +133,7 @@ class DistributedLoadIntegrator:
         q_y: NDArray[np.float64],
         q_z: NDArray[np.float64],
         m_x: NDArray[np.float64],
+        q_x: NDArray[np.float64] | None = None,
     ) -> tuple[IntegratedResultants, ...]:
         """
         Integrate each time row of ``(q_y, q_z, m_x)`` with shape ``(n_t, n_z)``.
@@ -145,7 +154,15 @@ class DistributedLoadIntegrator:
         T = _trapz_piecewise_to_tip_2d(z, m_x)
         My = _trapz_piecewise_to_tip_2d(z, Vz)
         Mz = -_trapz_piecewise_to_tip_2d(z, Vy)
-        N = np.zeros((n_t, z.size), dtype=np.float64)
+        if q_x is None:
+            N = np.zeros((n_t, z.size), dtype=np.float64)
+        else:
+            qxa = np.asarray(q_x, dtype=np.float64)
+            if qxa.shape != (n_t, z.size):
+                raise ValueError("q_x must have shape (n_t, n_z) when provided.")
+            N = np.zeros((n_t, z.size), dtype=np.float64)
+            for it in range(n_t):
+                N[it, :] = _trapz_piecewise_to_tip(z, qxa[it, :])
         return tuple(
             IntegratedResultants(
                 z=z.copy(),

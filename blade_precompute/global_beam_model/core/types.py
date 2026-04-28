@@ -14,6 +14,11 @@ Beam **resultants** (seven-vector) use::
 
     [N, Vy, Vz, My, Mz, T, B]
 
+Spanwise naming convention:
+
+- ``z`` denotes the blade span station coordinate used by solvers and outputs.
+- ``s`` denotes interpolation abscissa vectors in tabulated stiffness arrays.
+
 Use :func:`global_beam_model.engine.constitutive.resultants_to_recovery6` to map the first six
 entries to ``section_model`` order ``[N, My, Mz, T, Vy, Vz]`` for downstream section
 recovery tooling.
@@ -174,6 +179,15 @@ class BeamModel:
     kappa0_node: Optional[NDArray[np.float64]] = None
     chi0_node: Optional[NDArray[np.float64]] = None
 
+    def __post_init__(self) -> None:
+        if self.z_node is None and self.elements:
+            n = int(self.X_ref.shape[0])
+            z = np.zeros(n, dtype=np.float64)
+            for el in self.elements:
+                i, j = el.node_ids
+                z[j] = z[i] + el.L0
+            self.z_node = z
+
     @property
     def n_nodes(self) -> int:
         return int(self.X_ref.shape[0])
@@ -213,14 +227,36 @@ class BoundaryCondition:
 
 @dataclass
 class BeamLoads:
-    """Dead loads in the **global** frame plus optional boundary conditions."""
+    """Dead loads in the **global** frame plus optional boundary conditions.
+
+    Load convention (I.4)
+    ----------------------
+    Loads from DLC envelope tabulation are **non-follower** forces/moments in
+    the **undeformed global frame** (``frame = 'undeformed_global'``).
+    The in-loop adapter (``build_extreme_load_beam_loads`` in ``beam_k7.py``)
+    must set ``frame`` accordingly.  Do NOT borrow ``BeamLoads`` from
+    ``BeamModelStage`` operating-load instances — they may carry a different
+    loading convention and/or be mutated by the operating solver.
+
+    Warping BC (I.3)
+    ----------------
+    No bimoment end loads are applied at ``z=L`` (tip).  Warping DOF ``psi``
+    is clamped (psi=0) at the root node via ``bcs`` with ``fixed_dofs=(6,)``
+    at ``node_id=0``.
+    """
 
     nodal_F: NDArray[np.float64]
     nodal_M: NDArray[np.float64]
     distributed_q: Optional[NDArray[np.float64]] = None
     distributed_mz: Optional[NDArray[np.float64]] = None
-    """Distributed torsion about local x per unit arc length [N·m/m], per element or scalar."""
+    """Distributed torsion about local x per unit arc length [N·m/m], per element or scalar.
+
+    The load is assembled onto rotational DOF 3 (torsion), not warping DOF 6.
+    """
     bcs: List[BoundaryCondition] = field(default_factory=list)
+    #: ``'undeformed_global'`` (default): ``nodal_F``/``nodal_M`` in global frame;
+    #  ``'node_corotated'``: body-fixed with current node rotation ``R(q)`` (follower-style).
+    frame: str = "undeformed_global"
 
 
 # Backward compatibility
@@ -229,6 +265,20 @@ LoadCase = BeamLoads
 
 @dataclass
 class SolverOptions:
+    """
+    Newton–Raphson options for the 7-DOF beam static solve.
+
+    **Tangent.** By default ``full_fd_hessian`` is True: the element Hessian is built by
+    finite-differencing the element energy gradient (more consistent NR tangent, much more
+    costly than the material-only tangent). Set ``full_fd_hessian`` False for the elastic
+    ``BᵀK₇B`` (material) stiffness from a finite-difference ``B`` matrix, which is faster but
+    omits the geometric (stress-dependent) part of the exact Hessian for nonlinear ``e7(q)``.
+
+    When using the FD Hessian path, nested differencing can yield a nearly indefinite reduced
+    matrix. When ``project_fd_hessian_spd`` is True, eigenvalues of the reduced ``K_ff`` are
+    floored using ``fd_hessian_eig_floor_rel`` before the linear solve.
+    """
+
     max_iter: int = 35
     tol_res: float = 1e-8
     tol_res_rel: float = 1e-6
@@ -236,8 +286,17 @@ class SolverOptions:
     n_gauss: int = 2
     fd_eps: float = 1e-7
     hess_eps: float = 1e-6
-    full_fd_hessian: bool = False
+    full_fd_hessian: bool = True
+    #: When True and ``full_fd_hessian``, eigenvalues of reduced ``K_ff`` are floored so the
+    #: tangent is SPD (nested FD Hessian can be slightly indefinite).
+    project_fd_hessian_spd: bool = True
+    #: Minimum eigenvalue relative to ``max(eig, 1)`` when projecting (see ``project_fd_hessian_spd``).
+    fd_hessian_eig_floor_rel: float = 1e-10
     n_load_steps: int = 1
+    #: When a proportional load sub-step does not converge, halve the step until this minimum.
+    adaptive_load_min_step: float = 1e-5
+    #: Maximum number of load-sub-step halvings (prevents infinite loops on hard targets).
+    adaptive_load_bisect_max: int = 32
     tangent_rho: float = 0.0
     relax_factor: float = 1.0
     spin_stabilization: float = 0.0
@@ -245,10 +304,43 @@ class SolverOptions:
     accept_stagnation: bool = True
     stagnation_window: int = 4
     verbose: bool = False
+    #: If set, ``tol_mixed`` also includes ``tol_res_rel_rhs * rhs_ref`` where ``rhs_ref``
+    #: is ``||rhs_f||`` on the first NR iteration of each load increment (backward compatible:
+    #: ``None`` disables).
+    tol_res_rel_rhs: Optional[float] = None
+    #: Floor on stagnation ``cap`` as a fraction of ``||F_ext_full||`` (``0`` = legacy).
+    cap_floor_rel: float = 0.0
+    #: Backtracking line search on the free DOF increment (merit = reduced residual norm).
+    line_search: bool = False
+    line_search_shrink: float = 0.5
+    line_search_min_scale: float = 0.05
+    line_search_max_trials: int = 8
+    #: Grow ``tangent_rho`` when the reduced residual fails to decrease across iterations.
+    adaptive_tangent_rho: bool = False
+    adaptive_rho_growth: float = 2.0
+    adaptive_rho_max: float = 0.1
     # Arc-length (optional; load stepping used when disabled)
     use_arc_length: bool = False
+    #: Spherical Riks: arc constraint ``||u-u0||^2 + c^2(λ-λ0)^2 = s^2``; ``c`` weights load vs displacements.
+    arc_length_scale_lambda: float = 1.0
     arc_length_target: float = 0.0
     arc_length_max_iter: int = 8
+    #: Finite-difference step for ``∂F_ext/∂q`` when using follower (corotated) loads in the tangent.
+    follower_jacobian_eps: float = 1e-5
+    # Cheap diagonal max/min ratio on ``K_ff`` (post floor when projection is on). For exact
+    # ``cond`` via SVD, set ``log_full_condition_number`` True (much slower in NR).
+    log_full_condition_number: bool = False
+    # J.3: global buckling eigenvalue extraction after convergence
+    extract_buckling: bool = False
+    """When True, solve a generalized buckling problem at the converged state and
+    store eigenvalues/modeshapes.  The tangent is ``K_t`` (analytic: ``B^T K7 B`` plus
+    stress-stiffness, or full FD if ``full_fd_hessian``).  The geometric mass matrix
+    is the assembled stress (initial) geometric stiffness from ``r_m ∂²e_m/∂q∂qᵀ``."""
+    n_buckling_modes: int = 5
+    """Number of lowest buckling eigenvalues to extract (J.3)."""
+    #: Use complex-step (h=1e-20j) gradient as primary NR force vector. Set False to fall
+    #: back to the legacy central-difference gradient (for debugging only).
+    use_cs_gradient: bool = True
 
 
 SolveOptions = SolverOptions
@@ -265,7 +357,7 @@ class BeamSolveResult:
     converged: bool
     n_iterations: int
     residual_norm: float
-    iteration_history: List[Dict[str, float]]
+    iteration_history: List[Dict[str, float]]  # Per-iteration diagnostics (residual, du, step metadata).
     # Legacy / debug
     nodes: Optional[List[NodeState]] = None
     reactions: Optional[Dict[Tuple[int, int], float]] = None
@@ -280,21 +372,28 @@ class BeamSolveResult:
     section_stress_voigt_nodal: Optional[NDArray[np.float64]] = None
     section_strain_maxabs_gp: Optional[NDArray[np.float64]] = None  # (n_s, 6) laminate strain envelope
     section_strain_maxabs_nodal: Optional[NDArray[np.float64]] = None
-    section_tsai_wu_fi_max_gp: Optional[NDArray[np.float64]] = None  # (n_s,)
-    section_tsai_wu_fi_max_nodal: Optional[NDArray[np.float64]] = None
+    section_hashin_fi_max_gp: Optional[NDArray[np.float64]] = None  # (n_s,)
+    section_hashin_fi_max_nodal: Optional[NDArray[np.float64]] = None
     section_von_mises_fi_max_gp: Optional[NDArray[np.float64]] = None  # (n_s,) isotropic subcomponents
     section_von_mises_fi_max_nodal: Optional[NDArray[np.float64]] = None
-    section_delamination_fi_max_gp: Optional[NDArray[np.float64]] = None  # (n_s,) Tier-3 only
-    section_delamination_fi_max_nodal: Optional[NDArray[np.float64]] = None
     # Section-frame ply stress envelope (``blade_utilities.recovery.apply_section_stress_operator``)
     section_stress_voigt_secframe_gp: Optional[NDArray[np.float64]] = None  # (n_s, 3)
     section_stress_voigt_secframe_nodal: Optional[NDArray[np.float64]] = None
     # Spanwise d(FI)/dz via bundle ``D_z`` (``blade_utilities.recovery.apply_span_derivative``)
-    section_d_tsai_wu_fi_dz_gp: Optional[NDArray[np.float64]] = None
-    section_d_tsai_wu_fi_dz_nodal: Optional[NDArray[np.float64]] = None
-    # Tsai–Wu FI max over composite subcomponents per (station, ply); shape (n_s, n_ply_max)
-    section_tsai_wu_fi_ply_envelope_gp: Optional[NDArray[np.float64]] = None
-    section_tsai_wu_fi_ply_envelope_nodal: Optional[NDArray[np.float64]] = None
+    section_d_hashin_fi_dz_gp: Optional[NDArray[np.float64]] = None
+    section_d_hashin_fi_dz_nodal: Optional[NDArray[np.float64]] = None
+    # Hashin FI max over composite subcomponents per (station, ply); shape (n_s, n_ply_max)
+    section_hashin_fi_ply_envelope_gp: Optional[NDArray[np.float64]] = None
+    section_hashin_fi_ply_envelope_nodal: Optional[NDArray[np.float64]] = None
+    # J.3: global buckling stiffness matrices (populated when SolverOptions.extract_buckling=True)
+    tangent_stiffness: Optional[NDArray[np.float64]] = None
+    """(n_free, n_free) reduced tangent stiffness K_ff at converged state (J.3)."""
+    geometric_stiffness: Optional[NDArray[np.float64]] = None
+    """(n_free, n_free) geometric (stress) stiffness K_g at converged state (J.3)."""
+    global_buckling_lambdas: Optional[NDArray[np.float64]] = None
+    """Lowest N global buckling eigenvalues lambda from (K_t - lambda K_g)phi=0 (J.3)."""
+    global_buckling_modeshapes: Optional[NDArray[np.float64]] = None
+    """(N_modes, n_nodes, 7) global buckling modeshapes (J.5)."""
 
 
 SolveResult = BeamSolveResult

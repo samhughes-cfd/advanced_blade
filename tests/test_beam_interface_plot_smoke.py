@@ -22,7 +22,6 @@ def _tiny_model_loads() -> tuple[bm.BeamModel, bm.BeamLoads]:
         z_stations=z_st,
         r_ref=r_ref,
         kappa0=np.zeros((z_st.shape[0], 3)),
-        tau0=np.zeros_like(z_st),
         chord=np.ones_like(z_st),
         twist=np.zeros_like(z_st),
         airfoil_profiles=[],
@@ -78,13 +77,17 @@ def test_beam_plot_functions_run():
 
     fig, _ = bmplot.plot_centerline_ref_def(model, res)
     plt.close(fig)
-    fig, _ = bmplot.plot_spanwise_resultants(res)
+    fig, axes = bmplot.plot_spanwise_resultants(res)
+    labels = [line.get_label() for line in axes[0].lines if line.get_label() != "_nolegend_"]
+    assert "Gauss-point evaluation" in labels
+    assert "shape-function nodal projection" in labels
+    assert "shape-function interpolation" in labels
     plt.close(fig)
-    fig, _ = bmplot.plot_spanwise_strains(res)
-    plt.close(fig)
-    fig, _ = bmplot.plot_spanwise_resultants_nodal(res)
-    plt.close(fig)
-    fig, _ = bmplot.plot_spanwise_strains_nodal(res)
+    fig, axes = bmplot.plot_spanwise_strains(res)
+    labels = [line.get_label() for line in axes[0].lines if line.get_label() != "_nolegend_"]
+    assert "Gauss-point evaluation" in labels
+    assert "shape-function nodal projection" in labels
+    assert "shape-function interpolation" in labels
     plt.close(fig)
     fig, _ = bmplot.plot_nodal_warping(model, res)
     plt.close(fig)

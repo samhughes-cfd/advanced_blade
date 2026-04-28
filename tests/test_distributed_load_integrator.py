@@ -42,6 +42,19 @@ def test_constant_qy_moment_curvature_sign() -> None:
     assert np.allclose(r.Mz, mz_analytic, rtol=2e-3, atol=1e-3)
 
 
+def test_constant_qx_axial_force() -> None:
+    z = np.linspace(0.0, 4.0, 9, dtype=np.float64)
+    q_x = np.full_like(z, 80.0)
+    q_y = np.zeros_like(z)
+    q_z = np.zeros_like(z)
+    m_x = np.zeros_like(z)
+    r = DistributedLoadIntegrator.integrate(z, q_y, q_z, m_x, q_x=q_x)
+    L = float(z[-1] - z[0])
+    assert r.N[-1] == pytest.approx(0.0, abs=1e-9)
+    assert r.N[0] == pytest.approx(80.0 * L, rel=1e-9, abs=1e-6)
+    assert np.allclose(r.N, 80.0 * (z[-1] - z), rtol=1e-9, atol=1e-6)
+
+
 def test_constant_mx_torque() -> None:
     z = np.linspace(0.0, 5.0, 51, dtype=np.float64)
     m = 400.0
@@ -59,7 +72,7 @@ def test_extreme_dat_round_trip(tmp_path: Path) -> None:
     z = np.array([0.0, 2.0, 4.0, 6.0], dtype=np.float64)
     lines = [
         "# test",
-        "r_z_m q_y_Npm q_z_Npm m_x_Nmpm",
+        "spanwise_pos q_y_Npm q_z_Npm m_x_Nmpm",
         "0.0 1000 0 0",
         "2.0 1000 0 0",
         "4.0 1000 0 0",
@@ -78,7 +91,7 @@ def test_extreme_dat_round_trip(tmp_path: Path) -> None:
 def test_operational_unique_tz(tmp_path: Path) -> None:
     bad = tmp_path / "bad.dat"
     bad.write_text(
-        "t_s r_z_m q_y_Npm q_z_Npm m_x_Nmpm\n"
+        "t_s spanwise_pos q_y_Npm q_z_Npm m_x_Nmpm\n"
         "0.0 0.0 1 0 0\n"
         "0.0 0.0 2 0 0\n",
         encoding="utf-8",

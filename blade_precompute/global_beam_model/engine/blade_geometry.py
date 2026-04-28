@@ -27,7 +27,6 @@ class BladeGeometry:
     z_stations: NDArray[np.float64]  # (n_s,) spanwise arc coordinates [m]
     r_ref: NDArray[np.float64]  # (n_s, 3) shear-centre locus in global frame
     kappa0: NDArray[np.float64]  # (n_s, 3) initial curvature [kx, ky, kz] material frame
-    tau0: NDArray[np.float64]  # (n_s,) initial twist rate [1/m]; merged into κ₀₁ where used
     chord: NDArray[np.float64]
     twist: NDArray[np.float64]
     airfoil_profiles: List[Any] = field(default_factory=list)
@@ -41,7 +40,6 @@ class BladeGeometry:
         self.z_stations = np.asarray(self.z_stations, dtype=np.float64).ravel()
         self.r_ref = np.asarray(self.r_ref, dtype=np.float64)
         self.kappa0 = np.asarray(self.kappa0, dtype=np.float64)
-        self.tau0 = np.asarray(self.tau0, dtype=np.float64).ravel()
         self.chord = np.asarray(self.chord, dtype=np.float64).ravel()
         self.twist = np.asarray(self.twist, dtype=np.float64).ravel()
         self.web_positions = np.asarray(self.web_positions, dtype=np.float64)
@@ -74,7 +72,7 @@ def beam_model_from_blade_geometry(
 ) -> BeamModel:
     """
     Build a :class:`BeamModel` by resampling ``r_ref`` onto ``n_nodes`` along
-    ``z_stations`` and tabulating ``kappa0``, ``chi0``, ``tau0`` on the mesh.
+    ``z_stations`` and tabulating ``kappa0`` and ``chi0`` on the mesh.
     """
     if n_nodes < 2:
         raise ValueError("n_nodes must be at least 2.")
@@ -99,10 +97,7 @@ def beam_model_from_blade_geometry(
                 )
     r_node = _interp_columns(z_node, zs, geometry.r_ref)
     kappa0_node = _interp_columns(z_node, zs, geometry.kappa0)
-    tau0_node = np.interp(z_node, zs, geometry.tau0).reshape(-1, 1)
     chi0_node = np.interp(z_node, zs, geometry.chi0).ravel()
-    # fold tau0 into first curvature component (twist about beam axis) in material frame
-    kappa0_node[:, 0] = kappa0_node[:, 0] + tau0_node.ravel()
 
     elems: List[BeamElement] = []
     for e in range(n_nodes - 1):

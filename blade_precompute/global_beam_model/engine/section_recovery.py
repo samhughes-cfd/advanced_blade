@@ -2,12 +2,8 @@
 Section stress/strain recovery on the blade ``station_z`` grid.
 
 Uses :mod:`blade_utilities.recovery` — :class:`~blade_utilities.recovery.tensor_cache.cache.RecoveryCache`
-for ply stresses, Tsai–Wu, von Mises (isotropic), and Tier‑3 delamination FI, plus operator helpers
+for ply stresses, Hashin envelope FI, and von Mises (isotropic), plus operator helpers
 ``apply_strain_operator``, ``apply_section_stress_operator``, ``apply_span_derivative``.
-
-``apply_interlaminar_transfer`` is not wired here: Tier‑3 ``eval_delamination_fi`` already uses
-section-frame ply stresses and interlaminar models in ``section_properties``; a second bundle
-with ``G_if`` would duplicate design intent unless a separate interface-traction product is needed.
 """
 
 from __future__ import annotations
@@ -74,7 +70,7 @@ def _strain_max_abs_over_components(eps: NDArray[np.float64]) -> NDArray[np.floa
     return np.max(a, axis=2)
 
 
-def _tsai_wu_max_over_plies(fi: NDArray[np.float64]) -> NDArray[np.float64]:
+def _hashin_max_over_plies(fi: NDArray[np.float64]) -> NDArray[np.float64]:
     """``(n_case, n_s, n_comp, n_ply)`` → ``(n_case, n_s)``."""
     return np.max(np.asarray(fi, dtype=np.float64), axis=(2, 3))
 
@@ -82,10 +78,6 @@ def _tsai_wu_max_over_plies(fi: NDArray[np.float64]) -> NDArray[np.float64]:
 def _von_mises_max_over_iso(fi: NDArray[np.float64]) -> NDArray[np.float64]:
     """``(n_case, n_s, n_iso)`` → ``(n_case, n_s)``."""
     return np.max(np.asarray(fi, dtype=np.float64), axis=2)
-
-
-def _delamination_max(fi: NDArray[np.float64]) -> NDArray[np.float64]:
-    return np.max(np.asarray(fi, dtype=np.float64), axis=(2, 3))
 
 
 def _recovery_path_arrays(
@@ -98,37 +90,70 @@ def _recovery_path_arrays(
     voigt_mat = _aggregate_max_abs_voigt(sig_mat)[0]
     eps = apply_strain_operator(bundle, r_case)
     strain_max = _strain_max_abs_over_components(eps)[0]
-    tw_full_arr = cache.eval_tsai_wu_fi(r_case)
-    tw_max = _tsai_wu_max_over_plies(tw_full_arr)[0]
-    tw_ply_env = np.max(np.asarray(tw_full_arr, dtype=np.float64)[0], axis=1)
+    h_full_arr = cache.eval_hashin_fi(r_case)
+    h_max = _hashin_max_over_plies(h_full_arr)[0]
+    h_ply_env = np.max(np.asarray(h_full_arr, dtype=np.float64)[0], axis=1)
     vm_raw = cache.eval_von_mises_fi(r_case)
     if vm_raw.shape[2] == 0:
-        vm_max = np.zeros(int(tw_max.shape[0]), dtype=np.float64)
+        vm_max = np.zeros(int(h_max.shape[0]), dtype=np.float64)
     else:
         vm_max = _von_mises_max_over_iso(vm_raw)[0]
-
-    if cache.enable_tier3:
-        del_raw = cache.eval_delamination_fi(r_case)
-        del_max_arr: NDArray[np.float64] | None = _delamination_max(del_raw)[0] if del_raw is not None else None
-    else:
-        del_max_arr = None
 
     sig_sec = apply_section_stress_operator(bundle, r_case)
     voigt_sec = _aggregate_max_abs_voigt(sig_sec)[0]
 
-    tw_row = tw_max.reshape(1, -1)
-    d_tw = apply_span_derivative(bundle, tw_row)[0]
+    h_row = h_max.reshape(1, -1)
+    d_h = apply_span_derivative(bundle, h_row)[0]
 
     return {
         "section_stress_voigt": voigt_mat,
         "section_strain_maxabs": strain_max,
-        "section_tsai_wu_fi_max": tw_max,
-        "section_tsai_wu_fi_ply_envelope": tw_ply_env,
+        "section_hashin_fi_max": h_max,
+        "section_hashin_fi_ply_envelope": h_ply_env,
         "section_von_mises_fi_max": vm_max,
-        "section_delamination_fi_max": del_max_arr,
         "section_stress_voigt_secframe": voigt_sec,
-        "section_d_tsai_wu_fi_dz": d_tw,
+        "section_d_hashin_fi_dz": d_h,
     }
+
+
+def build_beam_section_recovery_artifacts(
+    res: "BeamSolveResult",
+    *,
+    station_z: NDArray[np.float64],
+    section_results: tuple[object, ...],
+    section_definitions: tuple[object, ...],
+) -> tuple[RecoveryCache, Any] | None:
+    """
+    Build :class:`RecoveryCache` and operator bundle once (same as used by
+    :func:`enrich_beam_result_with_section_stress`) for reuse e.g. with NPZ save.
+    """
+    z_sec = np.asarray(station_z, dtype=np.float64).ravel()
+    n_s = int(z_sec.shape[0])
+    if n_s == 0 or len(section_results) != n_s or len(section_definitions) == 0:
+        return None
+    sub0 = section_definitions[0].subcomponents
+    sr_list = list(section_results)
+    z_n = res.z_nodal_out
+    R_n = res.nodal_R
+    if z_n is not None and R_n is not None and R_n.ndim == 3:
+        nodal_R = _interp_nodal_R(z_n, R_n, z_sec)
+    else:
+        nodal_R = None
+    storage = RecoveryCacheBuilder.build(
+        section_results=sr_list,
+        section0_subcomponents=sub0,
+        z_stations=z_sec,
+        nodal_R_stack=nodal_R,
+    )
+    cache = RecoveryCache(**dataclasses.asdict(storage))
+    bundle = build_recovery_operator_bundle(
+        section_results=sr_list,
+        z_stations=z_sec,
+        nodal_R=nodal_R,
+        section0_subcomponents=sub0,
+        include_interlaminar_operator=False,
+    )
+    return cache, bundle
 
 
 def _empty_section_extras(z_sec: NDArray[np.float64]) -> Dict[str, Any]:
@@ -138,18 +163,16 @@ def _empty_section_extras(z_sec: NDArray[np.float64]) -> Dict[str, Any]:
         "section_stress_voigt_nodal",
         "section_strain_maxabs_gp",
         "section_strain_maxabs_nodal",
-        "section_tsai_wu_fi_max_gp",
-        "section_tsai_wu_fi_max_nodal",
+        "section_hashin_fi_max_gp",
+        "section_hashin_fi_max_nodal",
         "section_von_mises_fi_max_gp",
         "section_von_mises_fi_max_nodal",
-        "section_delamination_fi_max_gp",
-        "section_delamination_fi_max_nodal",
         "section_stress_voigt_secframe_gp",
         "section_stress_voigt_secframe_nodal",
-        "section_d_tsai_wu_fi_dz_gp",
-        "section_d_tsai_wu_fi_dz_nodal",
-        "section_tsai_wu_fi_ply_envelope_gp",
-        "section_tsai_wu_fi_ply_envelope_nodal",
+        "section_d_hashin_fi_dz_gp",
+        "section_d_hashin_fi_dz_nodal",
+        "section_hashin_fi_ply_envelope_gp",
+        "section_hashin_fi_ply_envelope_nodal",
     )
     return {k: None for k in keys} | {"z_section_recovery": z}
 
@@ -160,39 +183,23 @@ def enrich_beam_result_with_section_stress(
     station_z: NDArray[np.float64],
     section_results: tuple[object, ...],
     section_definitions: tuple[object, ...],
+    recovery_cache: Optional[RecoveryCache] = None,
+    recovery_bundle: Any = None,
 ) -> "BeamSolveResult":
     z_sec = np.asarray(station_z, dtype=np.float64).ravel()
     n_s = int(z_sec.shape[0])
     if n_s == 0 or len(section_results) != n_s or len(section_definitions) == 0:
         return dataclasses.replace(res, **_empty_section_extras(z_sec))
 
-    sub0 = section_definitions[0].subcomponents
-    sr_list = list(section_results)
-    tier3 = n_s >= 2
-
-    z_n = res.z_nodal_out
-    R_n = res.nodal_R
-    if z_n is not None and R_n is not None and R_n.ndim == 3:
-        nodal_R = _interp_nodal_R(z_n, R_n, z_sec)
+    if recovery_cache is not None and recovery_bundle is not None:
+        cache, bundle = recovery_cache, recovery_bundle
     else:
-        nodal_R = None
-
-    storage = RecoveryCacheBuilder.build(
-        section_results=sr_list,
-        section0_subcomponents=sub0,
-        z_stations=z_sec,
-        nodal_R_stack=nodal_R,
-        enable_tier3=tier3,
-    )
-    cache = RecoveryCache(**dataclasses.asdict(storage))
-
-    bundle = build_recovery_operator_bundle(
-        section_results=sr_list,
-        z_stations=z_sec,
-        nodal_R=nodal_R,
-        section0_subcomponents=sub0,
-        include_interlaminar_operator=False,
-    )
+        built = build_beam_section_recovery_artifacts(
+            res, station_z=z_sec, section_results=section_results, section_definitions=section_definitions
+        )
+        if built is None:
+            return dataclasses.replace(res, **_empty_section_extras(z_sec))
+        cache, bundle = built
 
     out: Dict[str, Any] = {
         "z_section_recovery": z_sec,
@@ -200,18 +207,16 @@ def enrich_beam_result_with_section_stress(
         "section_stress_voigt_nodal": None,
         "section_strain_maxabs_gp": None,
         "section_strain_maxabs_nodal": None,
-        "section_tsai_wu_fi_max_gp": None,
-        "section_tsai_wu_fi_max_nodal": None,
+        "section_hashin_fi_max_gp": None,
+        "section_hashin_fi_max_nodal": None,
         "section_von_mises_fi_max_gp": None,
         "section_von_mises_fi_max_nodal": None,
-        "section_delamination_fi_max_gp": None,
-        "section_delamination_fi_max_nodal": None,
         "section_stress_voigt_secframe_gp": None,
         "section_stress_voigt_secframe_nodal": None,
-        "section_d_tsai_wu_fi_dz_gp": None,
-        "section_d_tsai_wu_fi_dz_nodal": None,
-        "section_tsai_wu_fi_ply_envelope_gp": None,
-        "section_tsai_wu_fi_ply_envelope_nodal": None,
+        "section_d_hashin_fi_dz_gp": None,
+        "section_d_hashin_fi_dz_nodal": None,
+        "section_hashin_fi_ply_envelope_gp": None,
+        "section_hashin_fi_ply_envelope_nodal": None,
     }
 
     z_gp = res.z_stations_out
@@ -222,12 +227,11 @@ def enrich_beam_result_with_section_stress(
         d = _recovery_path_arrays(cache, bundle, r_case)
         out["section_stress_voigt_gp"] = d["section_stress_voigt"]
         out["section_strain_maxabs_gp"] = d["section_strain_maxabs"]
-        out["section_tsai_wu_fi_max_gp"] = d["section_tsai_wu_fi_max"]
+        out["section_hashin_fi_max_gp"] = d["section_hashin_fi_max"]
         out["section_von_mises_fi_max_gp"] = d["section_von_mises_fi_max"]
-        out["section_delamination_fi_max_gp"] = d["section_delamination_fi_max"]
         out["section_stress_voigt_secframe_gp"] = d["section_stress_voigt_secframe"]
-        out["section_d_tsai_wu_fi_dz_gp"] = d["section_d_tsai_wu_fi_dz"]
-        out["section_tsai_wu_fi_ply_envelope_gp"] = d["section_tsai_wu_fi_ply_envelope"]
+        out["section_d_hashin_fi_dz_gp"] = d["section_d_hashin_fi_dz"]
+        out["section_hashin_fi_ply_envelope_gp"] = d["section_hashin_fi_ply_envelope"]
 
     z_nd = res.z_nodal_out
     r_nd = res.resultants_nodal
@@ -237,12 +241,11 @@ def enrich_beam_result_with_section_stress(
         d = _recovery_path_arrays(cache, bundle, r_case_n)
         out["section_stress_voigt_nodal"] = d["section_stress_voigt"]
         out["section_strain_maxabs_nodal"] = d["section_strain_maxabs"]
-        out["section_tsai_wu_fi_max_nodal"] = d["section_tsai_wu_fi_max"]
+        out["section_hashin_fi_max_nodal"] = d["section_hashin_fi_max"]
         out["section_von_mises_fi_max_nodal"] = d["section_von_mises_fi_max"]
-        out["section_delamination_fi_max_nodal"] = d["section_delamination_fi_max"]
         out["section_stress_voigt_secframe_nodal"] = d["section_stress_voigt_secframe"]
-        out["section_d_tsai_wu_fi_dz_nodal"] = d["section_d_tsai_wu_fi_dz"]
-        out["section_tsai_wu_fi_ply_envelope_nodal"] = d["section_tsai_wu_fi_ply_envelope"]
+        out["section_d_hashin_fi_dz_nodal"] = d["section_d_hashin_fi_dz"]
+        out["section_hashin_fi_ply_envelope_nodal"] = d["section_hashin_fi_ply_envelope"]
 
     return dataclasses.replace(res, **out)
 
@@ -254,19 +257,17 @@ def build_section_recovery_cache_for_save(
     section_definitions: tuple[object, ...],
     nodal_R: NDArray[np.float64] | None,
 ) -> RecoveryCache:
-    """Build Tier‑3-aware cache for optional NPZ persistence (same recipe as enrich)."""
+    """Build fused recovery cache for optional NPZ persistence (same recipe as enrich)."""
     z_sec = np.asarray(station_z, dtype=np.float64).ravel()
     n_s = int(z_sec.shape[0])
     if n_s == 0 or len(section_results) != n_s or len(section_definitions) == 0:
         raise ValueError("Invalid section inputs for recovery cache.")
     sub0 = section_definitions[0].subcomponents
-    tier3 = n_s >= 2
     storage = RecoveryCacheBuilder.build(
         section_results=list(section_results),
         section0_subcomponents=sub0,
         z_stations=z_sec,
         nodal_R_stack=nodal_R,
-        enable_tier3=tier3,
     )
     return RecoveryCache(**dataclasses.asdict(storage))
 
@@ -278,23 +279,25 @@ def save_section_recovery_cache_to_npz(
     section_results: tuple[object, ...],
     section_definitions: tuple[object, ...],
     path: Path,
+    cache: RecoveryCache | None = None,
 ) -> None:
-    """Write fused :class:`RecoveryCache` operators (Tier‑3 when ``n_s>=2``) for fatigue / reuse."""
+    """Write fused :class:`RecoveryCache` operators for fatigue / reuse."""
     from blade_utilities.recovery import save_cache
 
     z_sec = np.asarray(station_z, dtype=np.float64).ravel()
-    z_n = res.z_nodal_out
-    R_n = res.nodal_R
-    if z_n is not None and R_n is not None and R_n.ndim == 3:
-        nodal_R = _interp_nodal_R(z_n, R_n, z_sec)
-    else:
-        nodal_R = None
-    cache = build_section_recovery_cache_for_save(
-        station_z=z_sec,
-        section_results=section_results,
-        section_definitions=section_definitions,
-        nodal_R=nodal_R,
-    )
+    if cache is None:
+        z_n = res.z_nodal_out
+        R_n = res.nodal_R
+        if z_n is not None and R_n is not None and R_n.ndim == 3:
+            nodal_R = _interp_nodal_R(z_n, R_n, z_sec)
+        else:
+            nodal_R = None
+        cache = build_section_recovery_cache_for_save(
+            station_z=z_sec,
+            section_results=section_results,
+            section_definitions=section_definitions,
+            nodal_R=nodal_R,
+        )
     outp = Path(path).resolve()
     outp.parent.mkdir(parents=True, exist_ok=True)
     save_cache(cache, str(outp))

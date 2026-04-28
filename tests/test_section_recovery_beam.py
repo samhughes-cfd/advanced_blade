@@ -67,7 +67,6 @@ def _tiny_geometry(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
         z_stations=z,
         r_ref=r_ref,
         kappa0=np.zeros((n_s, 3)),
-        tau0=np.zeros_like(z),
         chord=np.ones_like(z),
         twist=np.zeros_like(z),
         airfoil_profiles=[],
@@ -131,15 +130,13 @@ def test_enrich_beam_result_with_section_stress_smoke() -> None:
     assert out.section_stress_voigt_gp is not None and out.section_stress_voigt_gp.shape == (n_s, 3)
     assert out.section_stress_voigt_nodal is not None
     assert out.section_strain_maxabs_gp is not None and out.section_strain_maxabs_gp.shape == (n_s, 6)
-    assert out.section_tsai_wu_fi_max_gp is not None and out.section_tsai_wu_fi_max_gp.shape == (n_s,)
-    assert out.section_tsai_wu_fi_ply_envelope_gp is not None
-    assert out.section_tsai_wu_fi_ply_envelope_gp.shape[0] == n_s
-    assert out.section_tsai_wu_fi_ply_envelope_gp.shape == out.section_tsai_wu_fi_ply_envelope_nodal.shape
+    assert out.section_hashin_fi_max_gp is not None and out.section_hashin_fi_max_gp.shape == (n_s,)
+    assert out.section_hashin_fi_ply_envelope_gp is not None
+    assert out.section_hashin_fi_ply_envelope_gp.shape[0] == n_s
+    assert out.section_hashin_fi_ply_envelope_gp.shape == out.section_hashin_fi_ply_envelope_nodal.shape
     assert out.section_von_mises_fi_max_gp is not None and out.section_von_mises_fi_max_gp.shape == (n_s,)
-    assert out.section_delamination_fi_max_gp is not None
-    assert out.section_delamination_fi_max_gp.shape == (n_s,)
     assert out.section_stress_voigt_secframe_gp is not None and out.section_stress_voigt_secframe_gp.shape == (n_s, 3)
-    assert out.section_d_tsai_wu_fi_dz_gp is not None and out.section_d_tsai_wu_fi_dz_gp.shape == (n_s,)
+    assert out.section_d_hashin_fi_dz_gp is not None and out.section_d_hashin_fi_dz_gp.shape == (n_s,)
 
 
 def test_recover_all_fi_matches_individual_evaluators() -> None:
@@ -159,17 +156,13 @@ def test_recover_all_fi_matches_individual_evaluators() -> None:
         section0_subcomponents=sub0,
         z_stations=z_sec,
         nodal_R_stack=None,
-        enable_tier3=True,
     )
     cache = RecoveryCache(**dataclasses.asdict(storage))
     rng = np.random.default_rng(42)
     r_case = rng.standard_normal((1, z_sec.shape[0], 7)) * 500.0
-    tw_a, vm_a, del_a = cache.recover_all_fi(r_case)
-    np.testing.assert_allclose(tw_a, cache.eval_tsai_wu_fi(r_case), rtol=0, atol=1e-12)
+    h_a, vm_a = cache.recover_all_fi(r_case)
+    np.testing.assert_allclose(h_a, cache.eval_hashin_fi(r_case), rtol=0, atol=1e-12)
     np.testing.assert_allclose(vm_a, cache.eval_von_mises_fi(r_case), rtol=0, atol=1e-12)
-    del_b = cache.eval_delamination_fi(r_case)
-    assert del_b is not None
-    np.testing.assert_allclose(del_a, del_b, rtol=0, atol=1e-12)
 
 
 def test_save_section_recovery_cache_to_npz(tmp_path) -> None:
@@ -254,13 +247,29 @@ def test_section_recovery_plots_smoke() -> None:
     for pfn in (
         bmplot.plot_spanwise_section_stress,
         bmplot.plot_spanwise_section_strain_laminate,
-        bmplot.plot_spanwise_section_tsai_wu,
+        bmplot.plot_spanwise_section_hashin_fi,
         bmplot.plot_spanwise_section_von_mises_fi,
-        bmplot.plot_spanwise_section_delamination_fi,
         bmplot.plot_spanwise_section_stress_secframe,
-        bmplot.plot_spanwise_section_d_tsai_wu_dz,
-        lambda r: bmplot.plot_spanwise_section_tsai_wu_fi_heatmap(r, source="gp"),
-        lambda r: bmplot.plot_spanwise_section_tsai_wu_fi_heatmap(r, source="nodal"),
+        bmplot.plot_spanwise_section_d_hashin_fi_dz,
+        lambda r: bmplot.plot_spanwise_section_hashin_fi_heatmap(r, source="gp"),
+        lambda r: bmplot.plot_spanwise_section_hashin_fi_heatmap(r, source="nodal"),
     ):
         fig, _ = pfn(out)
         plt.close(fig)
+
+
+def test_hashin_fi_pure_shear_onset_matches_reference() -> None:
+    """τ12 = S12 ⇒ (τ/S)² = 1 in all four Hashin modes (same as section_shell golden)."""
+    from blade_precompute.section_properties.engine.failure_criteria import hashin_fi
+
+    S = 50e6
+    sig = np.array([0.0, 0.0, S], dtype=np.float64)
+    fi = hashin_fi(
+        sig,
+        np.float64(400e6),
+        np.float64(200e6),
+        np.float64(40e6),
+        np.float64(140e6),
+        np.float64(S),
+    )
+    np.testing.assert_allclose(float(np.asarray(fi)), 1.0, rtol=1e-14)

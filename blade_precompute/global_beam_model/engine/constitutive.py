@@ -83,14 +83,29 @@ def section_resultants(K6: NDArray[np.float64], e: NDArray[np.float64]) -> NDArr
 
 
 def synthesize_K7(K6: NDArray[np.float64], K7: NDArray[np.float64] | None = None) -> NDArray[np.float64]:
-    """Return full ``(7,7)`` stiffness, defaulting to decoupled warping diagonal."""
+    """Return full ``(7,7)`` stiffness, defaulting to a physically grounded warping diagonal.
+
+    Warping rigidity estimate: EIω ~ GJ * h_char² / 10 where h_char is inferred from the
+    bending-to-axial ratio, bounded to [1e-8 * EA, 0.1 * GJ].  This is more physical than
+    the legacy ``max(GJ, 1e-6)`` which ignores section size entirely.
+    """
+    import warnings
     if K7 is not None:
-        K = np.asarray(K7, dtype=np.float64).reshape(7, 7)
-        return K
+        return np.asarray(K7, dtype=np.float64).reshape(7, 7)
     out = np.zeros((7, 7), dtype=np.float64)
-    out[:6, :6] = K6
-    g = float(max(K6[3, 3], 1e-6))
-    out[6, 6] = g
+    out[:6, :6] = np.asarray(K6, dtype=np.float64)
+    GJ = float(max(K6[3, 3], 0.0))
+    EA = float(max(K6[0, 0], 1e-30))
+    EI_bend = float(max(np.linalg.norm(K6[1:3, 1:3]), 0.0))
+    h_char_sq = float(np.clip(EI_bend / EA, 1e-4, 1.0))
+    EIw = float(np.clip(GJ * h_char_sq / 10.0, 1e-8 * EA, max(0.1 * GJ, 1e-6)))
+    out[6, 6] = EIw
+    warnings.warn(
+        f"synthesize_K7: K7 not supplied; estimating warping stiffness EIω={EIw:.3e} "
+        f"from GJ={GJ:.3e}, EA={EA:.3e}. Supply full K7 for production accuracy.",
+        UserWarning,
+        stacklevel=2,
+    )
     return out
 
 

@@ -141,25 +141,60 @@ def plot_spanwise_resultants(
     *,
     ax: "m_axes.Axes | None" = None,
     title: str = "Spanwise resultants",
-    z_abscissa: NDArray[np.float64] | None = None,
 ) -> Tuple["Figure", Any]:
     plt = _require_pyplot()
     if ax is not None:
         raise ValueError("plot_spanwise_resultants uses a 4×2 grid; pass ax=None.")
-    z = np.asarray(res.z_stations_out, dtype=np.float64).ravel()
+    if res.z_stations_out is None or res.resultants is None:
+        raise ValueError("Resultants require BeamSolveResult.z_stations_out and resultants.")
+    if res.z_nodal_out is None or res.resultants_nodal is None:
+        raise ValueError(
+            "Combined resultants plot requires BeamSolveResult.z_nodal_out and resultants_nodal "
+            "(shape-function nodal projection)."
+        )
+    z_gp = np.asarray(res.z_stations_out, dtype=np.float64).ravel()
+    z_n = np.asarray(res.z_nodal_out, dtype=np.float64).ravel()
     R = np.asarray(res.resultants, dtype=np.float64)
+    R_nodal = np.asarray(res.resultants_nodal, dtype=np.float64)
     if R.ndim != 2 or R.shape[1] != 7:
         raise ValueError("resultants must have shape (n, 7).")
-    if z_abscissa is not None:
-        R = _interp_cols_sorted(np.asarray(z_abscissa, dtype=np.float64), z, R)
-        z = np.asarray(z_abscissa, dtype=np.float64).ravel()
+    if R_nodal.ndim != 2 or R_nodal.shape[1] != 7:
+        raise ValueError("resultants_nodal must have shape (n_nodes, 7).")
     labels = ["N", "Vy", "Vz", "My", "Mz", "T", "B"]
     fig, axes = plt.subplots(4, 2, figsize=(10, 10), sharex=True)
     axes = axes.ravel()
     for k in range(7):
-        axes[k].plot(z, R[:, k], "C0-", lw=1.2)
+        show_legend = k == 0
+        axes[k].plot(
+            z_gp,
+            R[:, k],
+            "o",
+            ms=3.0,
+            color="C3",
+            alpha=0.65,
+            label="Gauss-point evaluation" if show_legend else "_nolegend_",
+        )
+        axes[k].plot(
+            z_n,
+            R_nodal[:, k],
+            "s",
+            ms=4.2,
+            color="C0",
+            label="shape-function nodal projection" if show_legend else "_nolegend_",
+        )
+        axes[k].plot(
+            z_n,
+            R_nodal[:, k],
+            "-",
+            lw=1.0,
+            color="C0",
+            alpha=0.9,
+            label="shape-function interpolation" if show_legend else "_nolegend_",
+        )
         axes[k].set_ylabel(labels[k])
         axes[k].grid(True, alpha=0.3)
+        if show_legend:
+            axes[k].legend(loc="best", fontsize=8)
     axes[6].set_xlabel("z [m]")
     axes[7].set_visible(False)
     fig.suptitle(title)
@@ -171,98 +206,61 @@ def plot_spanwise_strains(
     res: "BeamSolveResult",
     *,
     ax: "m_axes.Axes | None" = None,
-    title: str = "Spanwise strains (7 DOF sampling)",
-    z_abscissa: NDArray[np.float64] | None = None,
+    title: str = "Spanwise strains",
 ) -> Tuple["Figure", Any]:
     plt = _require_pyplot()
     if ax is not None:
         raise ValueError("plot_spanwise_strains uses a 4×2 grid; pass ax=None.")
-    z = np.asarray(res.z_stations_out, dtype=np.float64).ravel()
-    e = np.asarray(res.strains, dtype=np.float64)
-    if e.ndim != 2 or e.shape[1] != 7:
-        raise ValueError("strains must have shape (n, 7).")
-    if z_abscissa is not None:
-        e = _interp_cols_sorted(np.asarray(z_abscissa, dtype=np.float64), z, e)
-        z = np.asarray(z_abscissa, dtype=np.float64).ravel()
-    labels = [f"ε_{i}" for i in range(7)]
-    fig, axes = plt.subplots(4, 2, figsize=(10, 10), sharex=True)
-    axes = axes.ravel()
-    for k in range(7):
-        axes[k].plot(z, e[:, k], "C1-", lw=1.2)
-        axes[k].set_ylabel(labels[k])
-        axes[k].grid(True, alpha=0.3)
-    axes[6].set_xlabel("z [m]")
-    axes[7].set_visible(False)
-    fig.suptitle(title)
-    fig.tight_layout()
-    return fig, axes
-
-
-def plot_spanwise_resultants_nodal(
-    res: "BeamSolveResult",
-    *,
-    ax: "m_axes.Axes | None" = None,
-    title: str = "Spanwise resultants (nodal average)",
-    z_abscissa: NDArray[np.float64] | None = None,
-) -> Tuple["Figure", Any]:
-    plt = _require_pyplot()
-    if ax is not None:
-        raise ValueError("plot_spanwise_resultants_nodal uses a 4×2 grid; pass ax=None.")
-    if res.z_nodal_out is None or res.resultants_nodal is None:
-        raise ValueError(
-            "Nodal resultants require BeamSolveResult.z_nodal_out and resultants_nodal "
-            "(from Gauss→nodal projection)."
-        )
-    z = np.asarray(res.z_nodal_out, dtype=np.float64).ravel()
-    R = np.asarray(res.resultants_nodal, dtype=np.float64)
-    if R.ndim != 2 or R.shape[1] != 7:
-        raise ValueError("resultants_nodal must have shape (n_nodes, 7).")
-    if z_abscissa is not None:
-        R = _interp_cols_sorted(np.asarray(z_abscissa, dtype=np.float64), z, R)
-        z = np.asarray(z_abscissa, dtype=np.float64).ravel()
-    labels = ["N", "Vy", "Vz", "My", "Mz", "T", "B"]
-    fig, axes = plt.subplots(4, 2, figsize=(10, 10), sharex=True)
-    axes = axes.ravel()
-    for k in range(7):
-        axes[k].plot(z, R[:, k], "C0-", lw=1.2)
-        axes[k].set_ylabel(labels[k])
-        axes[k].grid(True, alpha=0.3)
-    axes[6].set_xlabel("z [m]")
-    axes[7].set_visible(False)
-    fig.suptitle(title)
-    fig.tight_layout()
-    return fig, axes
-
-
-def plot_spanwise_strains_nodal(
-    res: "BeamSolveResult",
-    *,
-    ax: "m_axes.Axes | None" = None,
-    title: str = "Spanwise strains (nodal average)",
-    z_abscissa: NDArray[np.float64] | None = None,
-) -> Tuple["Figure", Any]:
-    plt = _require_pyplot()
-    if ax is not None:
-        raise ValueError("plot_spanwise_strains_nodal uses a 4×2 grid; pass ax=None.")
+    if res.z_stations_out is None or res.strains is None:
+        raise ValueError("Strains require BeamSolveResult.z_stations_out and strains.")
     if res.z_nodal_out is None or res.strains_nodal is None:
         raise ValueError(
-            "Nodal strains require BeamSolveResult.z_nodal_out and strains_nodal "
-            "(from Gauss→nodal projection)."
+            "Combined strains plot requires BeamSolveResult.z_nodal_out and strains_nodal "
+            "(shape-function nodal projection)."
         )
-    z = np.asarray(res.z_nodal_out, dtype=np.float64).ravel()
-    e = np.asarray(res.strains_nodal, dtype=np.float64)
+    z_gp = np.asarray(res.z_stations_out, dtype=np.float64).ravel()
+    z_n = np.asarray(res.z_nodal_out, dtype=np.float64).ravel()
+    e = np.asarray(res.strains, dtype=np.float64)
+    e_nodal = np.asarray(res.strains_nodal, dtype=np.float64)
     if e.ndim != 2 or e.shape[1] != 7:
+        raise ValueError("strains must have shape (n, 7).")
+    if e_nodal.ndim != 2 or e_nodal.shape[1] != 7:
         raise ValueError("strains_nodal must have shape (n_nodes, 7).")
-    if z_abscissa is not None:
-        e = _interp_cols_sorted(np.asarray(z_abscissa, dtype=np.float64), z, e)
-        z = np.asarray(z_abscissa, dtype=np.float64).ravel()
     labels = [f"ε_{i}" for i in range(7)]
     fig, axes = plt.subplots(4, 2, figsize=(10, 10), sharex=True)
     axes = axes.ravel()
     for k in range(7):
-        axes[k].plot(z, e[:, k], "C1-", lw=1.2)
+        show_legend = k == 0
+        axes[k].plot(
+            z_gp,
+            e[:, k],
+            "o",
+            ms=3.0,
+            color="C8",
+            alpha=0.65,
+            label="Gauss-point evaluation" if show_legend else "_nolegend_",
+        )
+        axes[k].plot(
+            z_n,
+            e_nodal[:, k],
+            "s",
+            ms=4.2,
+            color="C1",
+            label="shape-function nodal projection" if show_legend else "_nolegend_",
+        )
+        axes[k].plot(
+            z_n,
+            e_nodal[:, k],
+            "-",
+            lw=1.0,
+            color="C1",
+            alpha=0.9,
+            label="shape-function interpolation" if show_legend else "_nolegend_",
+        )
         axes[k].set_ylabel(labels[k])
         axes[k].grid(True, alpha=0.3)
+        if show_legend:
+            axes[k].legend(loc="best", fontsize=8)
     axes[6].set_xlabel("z [m]")
     axes[7].set_visible(False)
     fig.suptitle(title)
@@ -275,7 +273,6 @@ def plot_spanwise_section_stress(
     *,
     ax: "m_axes.Axes | None" = None,
     title: str = "Section ply stress (|σ| max over plies, material frame)",
-    z_abscissa: NDArray[np.float64] | None = None,
 ) -> Tuple["Figure", Any]:
     plt = _require_pyplot()
     if ax is not None:
@@ -287,21 +284,72 @@ def plot_spanwise_section_stress(
     nd = res.section_stress_voigt_nodal
     if gp is None and nd is None:
         raise ValueError("Need section_stress_voigt_gp and/or section_stress_voigt_nodal.")
-    if z_abscissa is not None:
-        zn = np.asarray(z_abscissa, dtype=np.float64).ravel()
-        if gp is not None:
-            gp = _interp_cols_sorted(zn, z, np.asarray(gp, dtype=np.float64))
-        if nd is not None:
-            nd = _interp_cols_sorted(zn, z, np.asarray(nd, dtype=np.float64))
-        z = zn
     labels = [r"max $|\sigma_{11}|$", r"max $|\sigma_{22}|$", r"max $|\tau_{12}|$"]
     fig, axes = plt.subplots(3, 1, figsize=(9, 8), sharex=True)
     for k in range(3):
         axk = axes[k]
         if gp is not None:
-            axk.plot(z, np.asarray(gp[:, k], dtype=np.float64) / 1e6, "C3--", lw=1.2, label="GP interp.")
+            y_gp = np.asarray(gp[:, k], dtype=np.float64) / 1e6
+            axk.plot(
+                z,
+                y_gp,
+                "-",
+                color="C3",
+                lw=0.95,
+                label="GP-resultant path -> recovery (markers @ z_section_recovery)",
+            )
+            axk.plot(z, y_gp, "o", color="C3", ms=3.0, alpha=0.75, label="_nolegend_")
         if nd is not None:
-            axk.plot(z, np.asarray(nd[:, k], dtype=np.float64) / 1e6, "C0-", lw=1.2, label="nodal interp.")
+            y_nd = np.asarray(nd[:, k], dtype=np.float64) / 1e6
+            axk.plot(
+                z,
+                y_nd,
+                "-",
+                color="C0",
+                lw=0.95,
+                label="shape-function nodal-resultant path -> recovery (markers @ z_section_recovery)",
+            )
+            axk.plot(z, y_nd, "s", color="C0", ms=3.8, alpha=0.9, label="_nolegend_")
+        axk.set_ylabel(labels[k] + "\n[MPa]")
+        axk.grid(True, alpha=0.3)
+        if k == 0:
+            axk.legend(loc="best", fontsize=8)
+    axes[-1].set_xlabel("z [m]")
+    fig.suptitle(title)
+    fig.tight_layout()
+    return fig, axes
+
+
+def plot_spanwise_section_stress_nodal(
+    res: "BeamSolveResult",
+    *,
+    ax: "m_axes.Axes | None" = None,
+    title: str = "Section ply stress — nodal path (|σ| max over plies, material frame)",
+) -> Tuple["Figure", Any]:
+    """Like :func:`plot_spanwise_section_stress` but only the nodal-resultant recovery series."""
+    plt = _require_pyplot()
+    if ax is not None:
+        raise ValueError("plot_spanwise_section_stress_nodal uses a 3×1 grid; pass ax=None.")
+    if res.z_section_recovery is None:
+        raise ValueError("Section stress requires BeamSolveResult.z_section_recovery.")
+    nd = res.section_stress_voigt_nodal
+    if nd is None:
+        raise ValueError("Nodal section stress requires BeamSolveResult.section_stress_voigt_nodal.")
+    z = np.asarray(res.z_section_recovery, dtype=np.float64).ravel()
+    labels = [r"max $|\sigma_{11}|$", r"max $|\sigma_{22}|$", r"max $|\tau_{12}|$"]
+    fig, axes = plt.subplots(3, 1, figsize=(9, 8), sharex=True)
+    for k in range(3):
+        axk = axes[k]
+        y_nd = np.asarray(nd[:, k], dtype=np.float64) / 1e6
+        axk.plot(
+            z,
+            y_nd,
+            "-",
+            color="C0",
+            lw=0.95,
+            label="shape-function nodal-resultant path -> recovery",
+        )
+        axk.plot(z, y_nd, "s", color="C0", ms=3.8, alpha=0.9, label="_nolegend_")
         axk.set_ylabel(labels[k] + "\n[MPa]")
         axk.grid(True, alpha=0.3)
         if k == 0:
@@ -317,7 +365,6 @@ def plot_spanwise_section_strain_laminate(
     *,
     ax: "m_axes.Axes | None" = None,
     title: str = "Laminate strain (max |ε| over subcomponents, CLPT)",
-    z_abscissa: NDArray[np.float64] | None = None,
 ) -> Tuple["Figure", Any]:
     plt = _require_pyplot()
     if ax is not None:
@@ -329,22 +376,33 @@ def plot_spanwise_section_strain_laminate(
     nd = res.section_strain_maxabs_nodal
     if gp is None and nd is None:
         raise ValueError("Need section_strain_maxabs_gp and/or section_strain_maxabs_nodal.")
-    if z_abscissa is not None:
-        zn = np.asarray(z_abscissa, dtype=np.float64).ravel()
-        if gp is not None:
-            gp = _interp_cols_sorted(zn, z, np.asarray(gp, dtype=np.float64))
-        if nd is not None:
-            nd = _interp_cols_sorted(zn, z, np.asarray(nd, dtype=np.float64))
-        z = zn
     labels = [r"$\varepsilon_0$", r"$\varepsilon_1$", r"$\varepsilon_2$", r"$\varepsilon_3$", r"$\varepsilon_4$", r"$\varepsilon_5$"]
     fig, axes = plt.subplots(3, 2, figsize=(10, 9), sharex=True)
     axes = axes.ravel()
     for k in range(6):
         axk = axes[k]
         if gp is not None:
-            axk.plot(z, np.asarray(gp[:, k], dtype=np.float64), "C1--", lw=1.2, label="GP interp.")
+            y_gp = np.asarray(gp[:, k], dtype=np.float64)
+            axk.plot(
+                z,
+                y_gp,
+                "-",
+                color="C3",
+                lw=0.95,
+                label="GP-resultant path -> recovery (markers @ z_section_recovery)",
+            )
+            axk.plot(z, y_gp, "o", color="C3", ms=3.0, alpha=0.75, label="_nolegend_")
         if nd is not None:
-            axk.plot(z, np.asarray(nd[:, k], dtype=np.float64), "C2-", lw=1.2, label="nodal interp.")
+            y_nd = np.asarray(nd[:, k], dtype=np.float64)
+            axk.plot(
+                z,
+                y_nd,
+                "-",
+                color="C0",
+                lw=0.95,
+                label="shape-function nodal-resultant path -> recovery (markers @ z_section_recovery)",
+            )
+            axk.plot(z, y_nd, "s", color="C0", ms=3.8, alpha=0.9, label="_nolegend_")
         axk.set_ylabel(labels[k])
         axk.grid(True, alpha=0.3)
         if k == 0:
@@ -356,35 +414,45 @@ def plot_spanwise_section_strain_laminate(
     return fig, axes
 
 
-def plot_spanwise_section_tsai_wu(
+def plot_spanwise_section_hashin_fi(
     res: "BeamSolveResult",
     *,
     ax: "m_axes.Axes | None" = None,
-    title: str = "Tsai–Wu FI (max over composite plies)",
-    z_abscissa: NDArray[np.float64] | None = None,
+    title: str = "Hashin FI (max over composite plies)",
 ) -> Tuple["Figure", "m_axes.Axes"]:
     plt = _require_pyplot()
     if ax is not None:
-        raise ValueError("plot_spanwise_section_tsai_wu uses a single axis; pass ax=None.")
+        raise ValueError("plot_spanwise_section_hashin_fi uses a single axis; pass ax=None.")
     if res.z_section_recovery is None:
         raise ValueError("Requires BeamSolveResult.z_section_recovery.")
     z = np.asarray(res.z_section_recovery, dtype=np.float64).ravel()
-    gp = res.section_tsai_wu_fi_max_gp
-    nd = res.section_tsai_wu_fi_max_nodal
+    gp = res.section_hashin_fi_max_gp
+    nd = res.section_hashin_fi_max_nodal
     if gp is None and nd is None:
-        raise ValueError("Need section_tsai_wu_fi_max_gp and/or section_tsai_wu_fi_max_nodal.")
-    if z_abscissa is not None:
-        zn = np.asarray(z_abscissa, dtype=np.float64).ravel()
-        if gp is not None:
-            gp = _interp_1d_sorted(zn, z, np.asarray(gp, dtype=np.float64).ravel())
-        if nd is not None:
-            nd = _interp_1d_sorted(zn, z, np.asarray(nd, dtype=np.float64).ravel())
-        z = zn
+        raise ValueError("Need section_hashin_fi_max_gp and/or section_hashin_fi_max_nodal.")
     fig, axp = plt.subplots(figsize=(8, 3.5))
     if gp is not None:
-        axp.plot(z, np.asarray(gp, dtype=np.float64).ravel(), "C3--", lw=1.2, label="GP interp.")
+        y_gp = np.asarray(gp, dtype=np.float64).ravel()
+        axp.plot(
+            z,
+            y_gp,
+            "-",
+            color="C3",
+            lw=0.95,
+            label="GP-resultant path -> recovery (markers @ z_section_recovery)",
+        )
+        axp.plot(z, y_gp, "o", color="C3", ms=3.0, alpha=0.75, label="_nolegend_")
     if nd is not None:
-        axp.plot(z, np.asarray(nd, dtype=np.float64).ravel(), "C0-", lw=1.2, label="nodal interp.")
+        y_nd = np.asarray(nd, dtype=np.float64).ravel()
+        axp.plot(
+            z,
+            y_nd,
+            "-",
+            color="C0",
+            lw=0.95,
+            label="shape-function nodal-resultant path -> recovery (markers @ z_section_recovery)",
+        )
+        axp.plot(z, y_nd, "s", color="C0", ms=3.8, alpha=0.9, label="_nolegend_")
     axp.set_xlabel("z [m]")
     axp.set_ylabel("FI (max ply)")
     axp.set_title(title)
@@ -399,7 +467,6 @@ def plot_spanwise_section_von_mises_fi(
     *,
     ax: "m_axes.Axes | None" = None,
     title: str = "von Mises FI (max over isotropic subcomponents)",
-    z_abscissa: NDArray[np.float64] | None = None,
 ) -> Tuple["Figure", "m_axes.Axes"]:
     plt = _require_pyplot()
     if ax is not None:
@@ -411,58 +478,31 @@ def plot_spanwise_section_von_mises_fi(
     nd = res.section_von_mises_fi_max_nodal
     if gp is None and nd is None:
         raise ValueError("Need section_von_mises_fi_max_gp and/or section_von_mises_fi_max_nodal.")
-    if z_abscissa is not None:
-        zn = np.asarray(z_abscissa, dtype=np.float64).ravel()
-        if gp is not None:
-            gp = _interp_1d_sorted(zn, z, np.asarray(gp, dtype=np.float64).ravel())
-        if nd is not None:
-            nd = _interp_1d_sorted(zn, z, np.asarray(nd, dtype=np.float64).ravel())
-        z = zn
     fig, axp = plt.subplots(figsize=(8, 3.5))
     if gp is not None:
-        axp.plot(z, np.asarray(gp, dtype=np.float64).ravel(), "C3--", lw=1.2, label="GP interp.")
+        y_gp = np.asarray(gp, dtype=np.float64).ravel()
+        axp.plot(
+            z,
+            y_gp,
+            "-",
+            color="C3",
+            lw=0.95,
+            label="GP-resultant path -> recovery (markers @ z_section_recovery)",
+        )
+        axp.plot(z, y_gp, "o", color="C3", ms=3.0, alpha=0.75, label="_nolegend_")
     if nd is not None:
-        axp.plot(z, np.asarray(nd, dtype=np.float64).ravel(), "C0-", lw=1.2, label="nodal interp.")
+        y_nd = np.asarray(nd, dtype=np.float64).ravel()
+        axp.plot(
+            z,
+            y_nd,
+            "-",
+            color="C0",
+            lw=0.95,
+            label="shape-function nodal-resultant path -> recovery (markers @ z_section_recovery)",
+        )
+        axp.plot(z, y_nd, "s", color="C0", ms=3.8, alpha=0.9, label="_nolegend_")
     axp.set_xlabel("z [m]")
     axp.set_ylabel("FI (max iso.)")
-    axp.set_title(title)
-    axp.legend(loc="best", fontsize=8)
-    axp.grid(True, alpha=0.3)
-    fig.tight_layout()
-    return fig, axp
-
-
-def plot_spanwise_section_delamination_fi(
-    res: "BeamSolveResult",
-    *,
-    ax: "m_axes.Axes | None" = None,
-    title: str = "Delamination FI (Tier‑3, max over interfaces)",
-    z_abscissa: NDArray[np.float64] | None = None,
-) -> Tuple["Figure", "m_axes.Axes"]:
-    plt = _require_pyplot()
-    if ax is not None:
-        raise ValueError("plot_spanwise_section_delamination_fi uses a single axis; pass ax=None.")
-    if res.z_section_recovery is None:
-        raise ValueError("Requires BeamSolveResult.z_section_recovery.")
-    z = np.asarray(res.z_section_recovery, dtype=np.float64).ravel()
-    gp = res.section_delamination_fi_max_gp
-    nd = res.section_delamination_fi_max_nodal
-    if gp is None and nd is None:
-        raise ValueError("Need section_delamination_fi_max_gp and/or section_delamination_fi_max_nodal.")
-    if z_abscissa is not None:
-        zn = np.asarray(z_abscissa, dtype=np.float64).ravel()
-        if gp is not None:
-            gp = _interp_1d_sorted(zn, z, np.asarray(gp, dtype=np.float64).ravel())
-        if nd is not None:
-            nd = _interp_1d_sorted(zn, z, np.asarray(nd, dtype=np.float64).ravel())
-        z = zn
-    fig, axp = plt.subplots(figsize=(8, 3.5))
-    if gp is not None:
-        axp.plot(z, np.asarray(gp, dtype=np.float64).ravel(), "C3--", lw=1.2, label="GP interp.")
-    if nd is not None:
-        axp.plot(z, np.asarray(nd, dtype=np.float64).ravel(), "C0-", lw=1.2, label="nodal interp.")
-    axp.set_xlabel("z [m]")
-    axp.set_ylabel("FI (max)")
     axp.set_title(title)
     axp.legend(loc="best", fontsize=8)
     axp.grid(True, alpha=0.3)
@@ -475,7 +515,6 @@ def plot_spanwise_section_stress_secframe(
     *,
     ax: "m_axes.Axes | None" = None,
     title: str = "Section-frame ply stress (|σ| max, blade_utilities.recovery)",
-    z_abscissa: NDArray[np.float64] | None = None,
 ) -> Tuple["Figure", Any]:
     plt = _require_pyplot()
     if ax is not None:
@@ -487,21 +526,32 @@ def plot_spanwise_section_stress_secframe(
     nd = res.section_stress_voigt_secframe_nodal
     if gp is None and nd is None:
         raise ValueError("Need section_stress_voigt_secframe_gp and/or section_stress_voigt_secframe_nodal.")
-    if z_abscissa is not None:
-        zn = np.asarray(z_abscissa, dtype=np.float64).ravel()
-        if gp is not None:
-            gp = _interp_cols_sorted(zn, z, np.asarray(gp, dtype=np.float64))
-        if nd is not None:
-            nd = _interp_cols_sorted(zn, z, np.asarray(nd, dtype=np.float64))
-        z = zn
     labels = [r"max $|\sigma_{11}|$", r"max $|\sigma_{22}|$", r"max $|\tau_{12}|$"]
     fig, axes = plt.subplots(3, 1, figsize=(9, 8), sharex=True)
     for k in range(3):
         axk = axes[k]
         if gp is not None:
-            axk.plot(z, np.asarray(gp[:, k], dtype=np.float64) / 1e6, "C3--", lw=1.2, label="GP interp.")
+            y_gp = np.asarray(gp[:, k], dtype=np.float64) / 1e6
+            axk.plot(
+                z,
+                y_gp,
+                "-",
+                color="C3",
+                lw=0.95,
+                label="GP-resultant path -> recovery (markers @ z_section_recovery)",
+            )
+            axk.plot(z, y_gp, "o", color="C3", ms=3.0, alpha=0.75, label="_nolegend_")
         if nd is not None:
-            axk.plot(z, np.asarray(nd[:, k], dtype=np.float64) / 1e6, "C0-", lw=1.2, label="nodal interp.")
+            y_nd = np.asarray(nd[:, k], dtype=np.float64) / 1e6
+            axk.plot(
+                z,
+                y_nd,
+                "-",
+                color="C0",
+                lw=0.95,
+                label="shape-function nodal-resultant path -> recovery (markers @ z_section_recovery)",
+            )
+            axk.plot(z, y_nd, "s", color="C0", ms=3.8, alpha=0.9, label="_nolegend_")
         axk.set_ylabel(labels[k] + "\n[MPa]")
         axk.grid(True, alpha=0.3)
         if k == 0:
@@ -512,35 +562,45 @@ def plot_spanwise_section_stress_secframe(
     return fig, axes
 
 
-def plot_spanwise_section_d_tsai_wu_dz(
+def plot_spanwise_section_d_hashin_fi_dz(
     res: "BeamSolveResult",
     *,
     ax: "m_axes.Axes | None" = None,
-    title: str = "d(Tsai–Wu FI)/dz along section stations",
-    z_abscissa: NDArray[np.float64] | None = None,
+    title: str = "d(Hashin FI)/dz along section stations",
 ) -> Tuple["Figure", "m_axes.Axes"]:
     plt = _require_pyplot()
     if ax is not None:
-        raise ValueError("plot_spanwise_section_d_tsai_wu_dz uses a single axis; pass ax=None.")
+        raise ValueError("plot_spanwise_section_d_hashin_fi_dz uses a single axis; pass ax=None.")
     if res.z_section_recovery is None:
         raise ValueError("Requires BeamSolveResult.z_section_recovery.")
     z = np.asarray(res.z_section_recovery, dtype=np.float64).ravel()
-    gp = res.section_d_tsai_wu_fi_dz_gp
-    nd = res.section_d_tsai_wu_fi_dz_nodal
+    gp = res.section_d_hashin_fi_dz_gp
+    nd = res.section_d_hashin_fi_dz_nodal
     if gp is None and nd is None:
-        raise ValueError("Need section_d_tsai_wu_fi_dz_gp and/or section_d_tsai_wu_fi_dz_nodal.")
-    if z_abscissa is not None:
-        zn = np.asarray(z_abscissa, dtype=np.float64).ravel()
-        if gp is not None:
-            gp = _interp_1d_sorted(zn, z, np.asarray(gp, dtype=np.float64).ravel())
-        if nd is not None:
-            nd = _interp_1d_sorted(zn, z, np.asarray(nd, dtype=np.float64).ravel())
-        z = zn
+        raise ValueError("Need section_d_hashin_fi_dz_gp and/or section_d_hashin_fi_dz_nodal.")
     fig, axp = plt.subplots(figsize=(8, 3.5))
     if gp is not None:
-        axp.plot(z, np.asarray(gp, dtype=np.float64).ravel(), "C3--", lw=1.2, label="GP interp.")
+        y_gp = np.asarray(gp, dtype=np.float64).ravel()
+        axp.plot(
+            z,
+            y_gp,
+            "-",
+            color="C3",
+            lw=0.95,
+            label="GP-resultant path -> recovery (markers @ z_section_recovery)",
+        )
+        axp.plot(z, y_gp, "o", color="C3", ms=3.0, alpha=0.75, label="_nolegend_")
     if nd is not None:
-        axp.plot(z, np.asarray(nd, dtype=np.float64).ravel(), "C0-", lw=1.2, label="nodal interp.")
+        y_nd = np.asarray(nd, dtype=np.float64).ravel()
+        axp.plot(
+            z,
+            y_nd,
+            "-",
+            color="C0",
+            lw=0.95,
+            label="shape-function nodal-resultant path -> recovery (markers @ z_section_recovery)",
+        )
+        axp.plot(z, y_nd, "s", color="C0", ms=3.8, alpha=0.9, label="_nolegend_")
     axp.set_xlabel("z [m]")
     axp.set_ylabel("dFI/dz [1/m]")
     axp.set_title(title)
@@ -550,16 +610,15 @@ def plot_spanwise_section_d_tsai_wu_dz(
     return fig, axp
 
 
-def plot_spanwise_section_tsai_wu_fi_heatmap(
+def plot_spanwise_section_hashin_fi_heatmap(
     res: "BeamSolveResult",
     *,
     source: str = "gp",
     ax: "m_axes.Axes | None" = None,
     title: str | None = None,
-    z_abscissa: NDArray[np.float64] | None = None,
 ) -> Tuple["Figure", "m_axes.Axes"]:
     """
-    Tsai–Wu FI heatmap: span ``z`` (horizontal) × ply index (vertical), values are
+    Hashin FI heatmap: span ``z`` (horizontal) × ply index (vertical), values are
     max over composite subcomponents at each (station, ply).
     """
     plt = _require_pyplot()
@@ -568,26 +627,22 @@ def plot_spanwise_section_tsai_wu_fi_heatmap(
     if res.z_section_recovery is None:
         raise ValueError("Requires BeamSolveResult.z_section_recovery.")
     if source == "gp":
-        data = res.section_tsai_wu_fi_ply_envelope_gp
-        label = "GP interp."
+        data = res.section_hashin_fi_ply_envelope_gp
+        label = "GP-resultant path -> recovery (markers @ z_section_recovery)"
     else:
-        data = res.section_tsai_wu_fi_ply_envelope_nodal
-        label = "nodal interp."
+        data = res.section_hashin_fi_ply_envelope_nodal
+        label = "shape-function nodal-resultant path -> recovery (markers @ z_section_recovery)"
     if data is None:
         raise ValueError(
-            f"Need section_tsai_wu_fi_ply_envelope_{source} from section recovery."
+            f"Need section_hashin_fi_ply_envelope_{source} from section recovery."
         )
     z = np.asarray(res.z_section_recovery, dtype=np.float64).ravel()
     arr = np.asarray(data, dtype=np.float64)
     if arr.ndim != 2 or arr.shape[0] != z.shape[0]:
         raise ValueError("ply envelope must have shape (n_stations, n_ply_max).")
-    if z_abscissa is not None:
-        zn = np.asarray(z_abscissa, dtype=np.float64).ravel()
-        arr = _interp_cols_sorted(zn, z, arr)
-        z = zn
     n_ply = int(arr.shape[1])
     if ax is not None:
-        raise ValueError("plot_spanwise_section_tsai_wu_fi_heatmap uses a single axes; pass ax=None.")
+        raise ValueError("plot_spanwise_section_hashin_fi_heatmap uses a single axes; pass ax=None.")
     fig, axp = plt.subplots(figsize=(10, 4))
     # Rows = ply, cols = span → transpose for imshow with x = span
     z0, z1 = float(z[0]), float(z[-1])
@@ -600,7 +655,7 @@ def plot_spanwise_section_tsai_wu_fi_heatmap(
     )
     axp.set_xlabel("z [m]")
     axp.set_ylabel("ply index (padded)")
-    ttl = title or f"Tsai–Wu FI ({label} max over composite subcomponents)"
+    ttl = title or f"Hashin FI ({label} max over composite subcomponents)"
     axp.set_title(ttl)
     cbar = fig.colorbar(im, ax=axp, fraction=0.046, pad=0.04)
     cbar.set_label("FI")
