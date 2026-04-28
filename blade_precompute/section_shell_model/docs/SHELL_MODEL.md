@@ -2,6 +2,25 @@
 
 This package implements the **handoff layer** between global/section thin-wall recovery and **local CLPT shell** subcomponent analysis.
 
+## MITC4 midsurface: `section_geometry` vs `section_shell_model`
+
+**Where each stage belongs**
+
+| Stage | Package | Responsibility |
+|-------|---------|----------------|
+| Implicit solids (offsets, clips, capsule, unions) | `section_geometry` | SDF subcomponents (`OuterSkin`, `ShearWeb`, `SparCap`, …). |
+| Mid-surface locus as explicit polyline | `section_geometry` | `midline_polyline()` in chord frame; geometrically consistent with the SDF recipe (typically not level-set marching of `__call__`). |
+| Chord (S) → blade (B) rotation for shell export | `section_geometry.interface.shell_midline_export.rotate_chord_to_blade` | Used when building strips (see plan *Implementation pack*). |
+| Neutral strip record (polyline + thickness + role) | `blade_precompute.contract.shell_midline_strip` | `ShellMidlineStrip` — **no** `Panel`, laminates, or `n_elements`; FE-agnostic. `SubcomponentMidline` remains a **backward-compatible alias** in `shell_inputs_from_section`. |
+| Strip list from `MultiCellSection` | `section_geometry.interface.shell_midline_export` | `build_shell_midline_strips`; `build_shell_mesh_inputs` wraps strips + LE/TE into `ShellMeshInputs`. Example imports: [`repro_mitc4_mesh_v2.py`](../examples/repro_mitc4_mesh_v2.py) (after code merge). |
+| `ShellMeshInputs` (strips + LE/TE diagnostics) | `section_shell_model` | `lib/shell_inputs_from_section.py`. |
+| One panel per strip, default laminates | `section_shell_model` | `topology_v2.build_section_v2` (panel order: **skin → caps → webs** — do not assume `panels[i]` matches raw `midlines[i]`). |
+| Arc-length discretisation, quads, junction clustering | `section_shell_model` | `mitc4_mesh.build_mitc4_mesh`, `global_mitc4_assembly` (`n_elements`, `endpoint_tol`, DOFs). |
+
+**Modularity rule:** `section_shell_model` meshes **B-frame polylines**; it should not use raw implicit SDF evaluation as the primary source of strip geometry. Optional later: geometry-neutral **junction/adjacency** hints in the shared contract if endpoint clustering is insufficient.
+
+**Naming:** “Caching” the midline means **materialising the mid-surface locus as a polyline** for the mesh handoff, distinct from SDF **evaluation caches** inside `section_geometry`.
+
 ## References
 
 - Section physics and equations: [section_stress_model/STRESS_MODEL.md](../section_stress_model/STRESS_MODEL.md)
@@ -32,7 +51,7 @@ Every field carries a `FieldProvenance` entry so downstream code and reports can
 
 `solve_station_clpt_shell` builds `N_vec = [Nx, Ny, Nxy]` and `M_vec = [Mx, My, Mxy]`, then calls `clpt_ply_failure_indices` (full `ABD` coupling). When MVP placeholders are zero, behavior matches the previous membrane-only skin station check (`Ny=0`, `M=0`).
 
-Ply-level failure uses the **Hashin (1980) four-mode envelope** in material axes via `clpt_ply_failure_indices(..., criterion="hashin")` (default), with the same strength inputs `Xt`, `Xc`, `Yt`, `Yc`, `S12` as before. Tsai–Wu remains available as `criterion="tsai_wu"` in `laminate_clpt` for comparison.
+Ply-level failure uses the **Hashin (1980) four-mode envelope** in material axes via `clpt_ply_failure_indices(..., criterion="hashin")` (default), with the same strength inputs `Xt`, `Xc`, `Yt`, `Yc`, `S12` as before. Global beam section recovery uses the same Hashin envelope via `blade_utilities.recovery` (recovery cache v2).
 
 ## Limitations
 
@@ -45,6 +64,33 @@ Ply-level failure uses the **Hashin (1980) four-mode envelope** in material axes
 1. Replace runtime `sys.path` injection with a proper package dependency or shared `blade_precompute` module.
 2. Populate `Ny` and `Mx, My, Mxy` from shell kinematics (e.g. panel curvature) where available.
 3. Optional FSDT path for `Qx`, `Qy` and transverse-shear-aware failure.
+
+## Future shell kernels
+
+**MITC4 is the only shipped kernel** in this package.
+
+The intended extension seam is:
+
+```
+ShellMeshInputs  ──►  build_section_v2  ──►  [panels, webs_geom, n_cells]
+                                                     │
+                                          kernel-specific mesh + assembly
+                                          (e.g. build_mitc4_mesh → Mitc4SectionMesh)
+```
+
+`ShellMeshInputs` and the `build_section_v2` panel list are **FE-kernel-agnostic**:
+they carry only B-frame polylines, thicknesses, and laminate assignments.  A future
+kernel (e.g. DST, DKMT, or a reduced-integration quad) would:
+
+1. Accept the same `(panels, webs_geom, n_cells)` tuple from `build_section_v2`.
+2. Implement its own mesh-and-assemble function (analogous to `build_mitc4_mesh` +
+   `solve_global_coupled_mitc4`), consuming `Panel.nodes` for arc-length
+   parametrisation and `Panel.lam` for constitutive data.
+3. Return a mesh DTO (analogous to `Mitc4SectionMesh`) with a `panel_meshes`
+   attribute following the same per-strip layout.
+
+No changes to `shell_inputs_from_section`, `topology_v2`, or the contract module
+(`blade_precompute.contract.shell_midline_strip`) are needed to add a new kernel.
 
 ---
 

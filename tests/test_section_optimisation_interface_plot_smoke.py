@@ -26,31 +26,27 @@ def test_section_optimisation_plots_run():
         t_cap=np.full(n, 0.039),
         t_web=np.full(n, 0.013),
     )
-    sh_tw = (n, 2, 3)
+    sh_h = (n, 2, 3)
     sh_vm = (n, 1)
     ev0 = DesignEvaluation(
         dv=dv0,
         mass=120.0,
         stiffness_metric=1.5e9,
         resultants=np.zeros((n, 7)),
-        fi_tw=np.full(sh_tw, 0.4),
+        fi_hashin=np.full(sh_h, 0.4),
         fi_vm=np.full(sh_vm, 0.35),
-        fi_delam=None,
-        max_fi_tw=0.4,
+        max_fi_hashin=0.4,
         max_fi_vm=0.35,
-        max_fi_delam=None,
     )
     ev1 = DesignEvaluation(
         dv=dv1,
         mass=118.0,
         stiffness_metric=1.52e9,
         resultants=np.zeros((n, 7)),
-        fi_tw=np.full(sh_tw, 0.42),
+        fi_hashin=np.full(sh_h, 0.42),
         fi_vm=np.full(sh_vm, 0.33),
-        fi_delam=None,
-        max_fi_tw=0.42,
+        max_fi_hashin=0.42,
         max_fi_vm=0.33,
-        max_fi_delam=None,
     )
     opt = OptimisationResult(
         success=True,

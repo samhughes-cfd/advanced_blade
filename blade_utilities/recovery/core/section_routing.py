@@ -44,7 +44,7 @@ def ply_strength_pad(
     comp_idx: list[int],
     n_ply_max: int,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
-    """Tsai–Wu strength grids ``(n_comp, n_ply_max)`` from reference section plies."""
+    """Ply strength grids ``(n_comp, n_ply_max)`` [Pa] for Hashin / allowables from reference section plies."""
     xt = np.zeros((len(comp_idx), n_ply_max), dtype=np.float64)
     xc = np.zeros_like(xt)
     yt = np.zeros_like(xt)

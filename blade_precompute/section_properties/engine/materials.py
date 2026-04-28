@@ -75,6 +75,25 @@ def plane_stress_Q_isotropic(E: float, nu: float) -> NDArray[np.float64]:
     )
 
 
+def build_isotropic_ABD(E: float, nu: float, t: float) -> NDArray[np.float64]:
+    """6×6 isotropic shell ABD for a plate of thickness t [m].
+
+    The laminate is symmetric about the midplane so B = 0:
+
+        A = Q_iso * t           (membrane stiffness)
+        B = 0                   (no membrane-bending coupling)
+        D = Q_iso * t**3 / 12  (bending stiffness)
+
+    Ordering matches :func:`plane_stress_Q_isotropic`:
+    ``[σ11, σ22, τ12]^T = Q @ [ε11, ε22, γ12]^T``.
+    """
+    Q = plane_stress_Q_isotropic(E, nu)
+    ABD = np.zeros((6, 6), dtype=np.float64)
+    ABD[:3, :3] = Q * t
+    ABD[3:, 3:] = Q * (t ** 3) / 12.0
+    return ABD
+
+
 def shear_modulus_section(E: float, nu: float) -> float:
     """Shear modulus proxy for section Laplacian [Pa]."""
     return float(E / (2.0 * (1.0 + max(nu, 1e-9))))

@@ -69,15 +69,15 @@ def _summarise(res: object) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description="Run a minimal section solve (canonical: SectionSolveResult).")
     p.add_argument(
-        "--yaml",
+        "--section-spec",
         type=Path,
         default=None,
-        help="Optional path to section YAML; default is an in-memory smoke section.",
+        help="Optional path to section spec JSON; default is an in-memory smoke section.",
     )
     args = p.parse_args()
     analysis = SectionAnalysis()
-    if args.yaml is not None:
-        res = analysis.load_and_solve(args.yaml)
+    if args.section_spec is not None:
+        res = analysis.load_and_solve(args.section_spec)
     else:
         res = analysis.solve(_smoke_section())
     _summarise(res)

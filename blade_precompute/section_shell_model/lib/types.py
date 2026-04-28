@@ -104,3 +104,8 @@ class SectionShellRecoveryBundle:
     all_panel_mitc4_diagnostics: list | None = None
     # Vlasov warping result (set by run_section_with_mitc4_shell / run_section_both)
     vlasov_result: SectionVlasovResult | None = None
+    # Panel-wise 6×6 ABD used for MITC4 (one row per panel with len(s)>=2); optional diagnostics
+    mitc4_panel_abd: Any | None = None  # np.ndarray (n_panel, 6, 6)
+    mitc4_panel_thickness_m: Any | None = None  # (n_panel,)
+    mitc4_panel_G_eff: Any | None = None  # (n_panel,)
+    mitc4_panel_labels: list[str] | None = None

@@ -28,11 +28,19 @@ def _dummy_inputs() -> PrecomputeInputs:
         spanwise_path=Path("x"),
         extreme_loads_path=Path("y"),
         span_r_z_m=np.array([0.0, 4.0, 8.0], dtype=np.float64),
-        chord_m=np.array([2.0, 1.6, 1.2], dtype=np.float64),
+        radial_r_m=np.array([0.0, 4.0, 8.0], dtype=np.float64),
+        # Root chord 2.0 m hits a singular Bredt matrix for this 2D-CN shell path; keep ≤~1.6 m for smoke stability.
+        chord_m=np.array([1.6, 1.6, 1.2], dtype=np.float64),
         twist_deg=np.zeros(3, dtype=np.float64),
-        naca_m=np.array([0.0, 2.0, 4.0], dtype=np.float64),
-        naca_p=np.array([0.0, 4.0, 4.0], dtype=np.float64),
+        kappa0_x=np.zeros(3, dtype=np.float64),
+        kappa0_y=np.zeros(3, dtype=np.float64),
+        kappa0_z=np.zeros(3, dtype=np.float64),
+        # Cambered 4-digit at every station (2412-style); m=p=0 at root makes a
+        # symmetric airfoil that hits a singular Bredt system for 2D-CN shells.
+        naca_m=np.array([2.0, 2.0, 2.0], dtype=np.float64),
+        naca_p=np.array([4.0, 4.0, 4.0], dtype=np.float64),
         naca_xx=np.array([12.0, 12.0, 12.0], dtype=np.float64),
+        naca_series=np.full(3, 4, dtype=np.int64),
         loads_r_z_m=np.array([0.0, 8.0], dtype=np.float64),
         q_y_Npm=np.zeros(2, dtype=np.float64),
         q_z_Npm=np.zeros(2, dtype=np.float64),
@@ -42,8 +50,8 @@ def _dummy_inputs() -> PrecomputeInputs:
 
 def _orch() -> PrecomputeOrchestrationContext:
     return PrecomputeOrchestrationContext(
-        system_type_key="legacy",
-        layout=resolve_system_type("legacy"),
+        system_type_key="2D-CN",
+        layout=resolve_system_type("2D-CN"),
         component_materials=ComponentMaterialsMap(skin=0, spar_cap=0, shear_web=0),
     )
 
@@ -64,7 +72,7 @@ def test_section_shell_model_stage_execute(mock_impl: object, tmp_path: Path) ->
         params=SectionShellModelParams(
             inp=_dummy_inputs(),
             out_dir=tmp_path,
-            plot_station_spec="root",
+            section_plot_station_spec="root",
             orchestration=_orch(),
         )
     )
@@ -80,7 +88,7 @@ def test_section_shell_model_get_results_requires_execute() -> None:
         params=SectionShellModelParams(
             inp=_dummy_inputs(),
             out_dir=Path("."),
-            plot_station_spec="root",
+            section_plot_station_spec="root",
             orchestration=_orch(),
         )
     )
@@ -88,8 +96,8 @@ def test_section_shell_model_get_results_requires_execute() -> None:
         st.get_results()
 
 
-def test_section_shell_spars_from_layout_legacy() -> None:
-    layout = resolve_system_type("legacy")
+def test_section_shell_spars_from_layout_2b_cn() -> None:
+    layout = resolve_system_type("2D-CN")
     assert section_shell_spars_from_layout(layout) == [0.15, 0.5]
 
 
@@ -99,7 +107,7 @@ def test_section_shell_spars_from_layout_0a_empty() -> None:
 
 
 def test_section_shell_spars_from_layout_mismatch_raises() -> None:
-    layout = replace(resolve_system_type("legacy"), web_chord_fracs=(0.15,))
+    layout = replace(resolve_system_type("2D-CN"), web_chord_fracs=(0.15,))
     with pytest.raises(ValueError, match="web_chord_fracs length"):
         section_shell_spars_from_layout(layout)
 
@@ -117,6 +125,7 @@ def test_section_shell_model_skipped_outputs_writes_summary(tmp_path: Path) -> N
     data = (tmp_path / "section_shell_model" / "summary.json").read_text(encoding="utf-8")
     assert '"skipped": true' in data
     assert "run_section_shell_model=false" in data
+    assert "station_result_json_paths" in data
 
 
 def test_grid_config_section_shell_fields() -> None:
@@ -125,7 +134,7 @@ def test_grid_config_section_shell_fields() -> None:
     cfg = GridConfig(
         geometry=g,
         structural=s,
-        plot_station_spec="root",
+        section_plot_station_spec="root",
         n_beam_nodes=10,
         run_section_shell_model=False,
         section_shell_n_elements_per_panel=8,
@@ -141,7 +150,7 @@ def test_section_shell_model_stage_smoke_unmocked(tmp_path: Path) -> None:
         params=SectionShellModelParams(
             inp=_dummy_inputs(),
             out_dir=tmp_path,
-            plot_station_spec="root",
+            section_plot_station_spec="root",
             orchestration=_orch(),
             n_elements_per_panel=4,
             dpi=72,
@@ -154,3 +163,134 @@ def test_section_shell_model_stage_smoke_unmocked(tmp_path: Path) -> None:
     assert payload.get("skipped") is False
     assert payload.get("spars") == [0.15, 0.5]
     assert r.png_paths
+    assert r.station_result_json_paths
+    assert len(r.station_result_json_paths) == len(payload["station_result_json_paths"])
+    for jp in r.station_result_json_paths:
+        assert jp.is_file()
+        station_payload = json.loads(jp.read_text(encoding="utf-8"))
+        assert station_payload.get("schema") == "section_shell_station_v1"
+        assert station_payload.get("station_tag")
+        assert "thin_wall" in station_payload
+        assert "unit_section_resultants" in station_payload
+
+
+# ---------------------------------------------------------------------------
+# PR3 v2 path tests
+# ---------------------------------------------------------------------------
+
+
+def _orch_0a() -> PrecomputeOrchestrationContext:
+    return PrecomputeOrchestrationContext(
+        system_type_key="0A",
+        layout=resolve_system_type("0A"),
+        component_materials=ComponentMaterialsMap(skin=0, spar_cap=0, shear_web=0),
+    )
+
+
+def _orch_0b() -> PrecomputeOrchestrationContext:
+    return PrecomputeOrchestrationContext(
+        system_type_key="0B",
+        layout=resolve_system_type("0B"),
+        component_materials=ComponentMaterialsMap(skin=0, spar_cap=0, shear_web=0),
+    )
+
+
+def test_v2_path_2d_cn_produces_v2_schema(tmp_path: Path) -> None:
+    """v2 flag routes 2D-CN through build_shell_mesh_inputs → schema v2."""
+    st = SectionShellModelStage(
+        params=SectionShellModelParams(
+            inp=_dummy_inputs(),
+            out_dir=tmp_path,
+            section_plot_station_spec="root",
+            orchestration=_orch(),
+            n_elements_per_panel=4,
+            dpi=72,
+            use_mitc4_v2_path=True,
+        )
+    )
+    r = st.execute().get_results()
+    assert not r.skipped
+    assert r.station_result_json_paths
+    for jp in r.station_result_json_paths:
+        assert jp.is_file()
+        sp = json.loads(jp.read_text(encoding="utf-8"))
+        assert sp.get("schema") == "section_shell_station_v2"
+        assert sp.get("station_tag")
+        assert "thin_wall" in sp
+        assert "unit_section_resultants" in sp
+        assert "mesh_summary" in sp
+        # 2D-CN has 2 webs → skin + web + cap panels
+        tw = sp["thin_wall"]
+        assert tw["n_panels"] >= 1
+        assert tw["n_total_elements"] > 0
+
+
+def test_v2_path_0a_skin_panels_only(tmp_path: Path) -> None:
+    """0A + v2 flag produces a mesh with skin panels only (no web panels)."""
+    st = SectionShellModelStage(
+        params=SectionShellModelParams(
+            inp=_dummy_inputs(),
+            out_dir=tmp_path,
+            section_plot_station_spec="root",
+            orchestration=_orch_0a(),
+            n_elements_per_panel=4,
+            dpi=72,
+            use_mitc4_v2_path=True,
+        )
+    )
+    r = st.execute().get_results()
+    assert not r.skipped
+    assert r.station_result_json_paths
+    for jp in r.station_result_json_paths:
+        sp = json.loads(jp.read_text(encoding="utf-8"))
+        assert sp.get("schema") == "section_shell_station_v2"
+        assert sp.get("layout_key") == "0A"
+        tw = sp["thin_wall"]
+        panels = tw["panels"]
+        kinds = {p["kind"] for p in panels}
+        assert "web" not in kinds, f"0A must not have web panels; got kinds={kinds}"
+        assert "skin" in kinds, f"0A must have at least one skin panel; got kinds={kinds}"
+
+
+def test_v2_path_0b_no_web_panels(tmp_path: Path) -> None:
+    """0B + v2 flag produces mesh with no web panels (caps deferred — skin only for now)."""
+    st = SectionShellModelStage(
+        params=SectionShellModelParams(
+            inp=_dummy_inputs(),
+            out_dir=tmp_path,
+            section_plot_station_spec="root",
+            orchestration=_orch_0b(),
+            n_elements_per_panel=4,
+            dpi=72,
+            use_mitc4_v2_path=True,
+        )
+    )
+    r = st.execute().get_results()
+    assert not r.skipped
+    assert r.station_result_json_paths
+    for jp in r.station_result_json_paths:
+        sp = json.loads(jp.read_text(encoding="utf-8"))
+        assert sp.get("layout_key") == "0B"
+        tw = sp["thin_wall"]
+        kinds = {p["kind"] for p in tw["panels"]}
+        assert "web" not in kinds
+
+
+def test_v2_path_legacy_unchanged(tmp_path: Path) -> None:
+    """Legacy path (use_mitc4_v2_path=False) still produces v1 schema."""
+    st = SectionShellModelStage(
+        params=SectionShellModelParams(
+            inp=_dummy_inputs(),
+            out_dir=tmp_path,
+            section_plot_station_spec="root",
+            orchestration=_orch(),
+            n_elements_per_panel=4,
+            dpi=72,
+            use_mitc4_v2_path=False,
+        )
+    )
+    r = st.execute().get_results()
+    assert r.station_result_json_paths
+    for jp in r.station_result_json_paths:
+        sp = json.loads(jp.read_text(encoding="utf-8"))
+        assert sp.get("schema") == "section_shell_station_v1"

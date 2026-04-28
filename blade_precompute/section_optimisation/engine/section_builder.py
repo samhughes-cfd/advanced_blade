@@ -1,17 +1,35 @@
-"""Build spanwise ``SectionDefinition`` from design variables and blade geometry."""
+"""Build spanwise ``SectionDefinition`` from design variables and blade geometry.
+
+Group L.7
+---------
+``SectionBuilder.build`` accepts an optional ``current_mix`` parameter.
+When provided (during the outer orientation enumeration), it calls
+``LaminateDefinition.from_orientation_mix`` instead of ``scale_thickness`` to
+bake the discrete ply orientation into the laminate definition.
+"""
 
 from __future__ import annotations
 
 import copy
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
 
+from blade_precompute.section_geometry.laminate_thickness_limits import (
+    clamp_skin_thickness_m,
+    clamp_spar_laminate_thickness_m,
+    clamp_web_thickness_m,
+)
 from blade_precompute.section_properties.engine.geometry import SectionDefinition, SubcomponentGeometry
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial
 
 from ..core.types import DesignVector, OptimBladeGeometry, ThicknessRole
+from .ply_angle_constraints import validate_stack_angles_for_role
+
+if TYPE_CHECKING:
+    from .orientation_mix import OrientationMix
 
 
 def _infer_role(name: str, explicit: dict[str, ThicknessRole]) -> ThicknessRole:
@@ -40,7 +58,6 @@ def _default_norm_polylines(bg: OptimBladeGeometry) -> dict[str, NDArray[np.floa
         "web_ps": np.array([[y0, 0.0], [y0, h]], dtype=np.float64),
         "web_ss": np.array([[y1, 0.0], [y1, h]], dtype=np.float64),
         "web": np.array([[y0, 0.0], [y0, h]], dtype=np.float64),
-        "leading_edge_insert": np.array([[-0.5, 0.0], [-0.5, 0.25 * h]], dtype=np.float64),
     }
 
 
@@ -65,7 +82,27 @@ def _scale_twist(pts: NDArray[np.float64], chord: float, twist_deg: float) -> ND
 
 class SectionBuilder:
     @staticmethod
-    def build(dv: DesignVector, blade_geometry: OptimBladeGeometry) -> list[SectionDefinition]:
+    def build(
+        dv: DesignVector,
+        blade_geometry: OptimBladeGeometry,
+        *,
+        current_mix: "dict[ThicknessRole, OrientationMix] | None" = None,
+    ) -> list[SectionDefinition]:
+        """Build spanwise :class:`SectionDefinition` list from design variables.
+
+        Parameters
+        ----------
+        dv
+            Design vector (thicknesses per station per role).
+        blade_geometry
+            Spanwise geometry and material templates.
+        current_mix
+            Optional dict mapping role → :class:`OrientationMix` (L.7).
+            When provided, ``LaminateDefinition.from_orientation_mix`` is used
+            instead of ``scale_thickness`` for composite subcomponents.
+            The mix must be valid for the role (allowlist enforced by the outer
+            enumeration loop; no re-validation here for speed).
+        """
         n = int(blade_geometry.z_stations.shape[0])
         if dv.t_skin.shape[0] != n:
             raise ValueError("DesignVector station count must match OptimBladeGeometry.")
@@ -85,19 +122,29 @@ class SectionBuilder:
                 pts = _scale_twist(np.asarray(pts_n, dtype=np.float64), chord, twist)
                 strip_w = max(0.01 * chord, 1e-4)
                 if isinstance(mat_template, LaminateDefinition):
-                    lam0 = copy.deepcopy(mat_template)
+                    validate_stack_angles_for_role(
+                        role, (float(ang) for _, ang in mat_template.plies), subcomponent=name
+                    )
                     if role == "skin":
-                        t_new = float(dv.t_skin[i])
+                        t_new = clamp_skin_thickness_m(float(dv.t_skin[i]))
                     elif role == "cap":
-                        t_new = float(dv.t_cap[i])
+                        t_new = clamp_spar_laminate_thickness_m(float(dv.t_cap[i]))
                     elif role == "web":
-                        t_new = float(dv.t_web[i])
+                        t_new = clamp_web_thickness_m(float(dv.t_web[i]))
                     else:
-                        t_new = lam0.total_thickness()
-                    lam = lam0.scale_thickness(t_new)
+                        t_new = mat_template.total_thickness()
+
+                    # L.7: use orientation mix when available
+                    mix = (current_mix or {}).get(role)
+                    if mix is not None:
+                        lam = _laminate_from_mix(mat_template, mix, t_new)
+                    else:
+                        lam0 = copy.deepcopy(mat_template)
+                        lam = lam0.scale_thickness(t_new)
+
                     if role == "cap":
                         b_cap = blade_geometry.cap_shear_lag_width or 0.15 * chord
-                        t_skin_ref = float(dv.t_skin[i])
+                        t_skin_ref = clamp_skin_thickness_m(float(dv.t_skin[i]))
                         lam = lam.apply_shear_lag(b_cap, max(t_skin_ref, 1e-6))
                     subs.append(
                         SubcomponentGeometry(
@@ -111,11 +158,11 @@ class SectionBuilder:
                 elif isinstance(mat_template, IsotropicMaterial):
                     mat = copy.deepcopy(mat_template)
                     if role == "skin":
-                        th = float(dv.t_skin[i])
+                        th = clamp_skin_thickness_m(float(dv.t_skin[i]))
                     elif role == "cap":
-                        th = float(dv.t_cap[i])
+                        th = clamp_spar_laminate_thickness_m(float(dv.t_cap[i]))
                     elif role == "web":
-                        th = float(dv.t_web[i])
+                        th = clamp_web_thickness_m(float(dv.t_web[i]))
                     else:
                         th = 0.004
                     subs.append(
@@ -131,3 +178,32 @@ class SectionBuilder:
                     raise TypeError(type(mat_template))
             out.append(SectionDefinition(station_z=float(blade_geometry.z_stations[i]), subcomponents=subs))
         return out
+
+
+def _laminate_from_mix(
+    template: LaminateDefinition,
+    mix: "OrientationMix",
+    t_total: float,
+) -> LaminateDefinition:
+    """Build a laminate from an :class:`OrientationMix` using the template plies as bases (L.7).
+
+    Extracts unique base plies from the template by angle group:
+    - 0° → first ply with angle ~0°
+    - ±45° → first ply with angle ~±45°
+    - 90° → first ply with angle ~90°
+    Falls back to the first ply in the template when a group is absent.
+    """
+    def _closest(target: float) -> Any:
+        best = min(template.plies, key=lambda p_a: abs(float(p_a[1]) - target))
+        return best[0]
+
+    ply_ud = _closest(0.0)
+    ply_biax = _closest(45.0)
+    ply_90 = _closest(90.0)
+    return LaminateDefinition.from_orientation_mix(
+        mix,
+        base_ply_ud=ply_ud,
+        base_ply_biax=ply_biax,
+        t_total=t_total,
+        base_ply_90=ply_90,
+    )

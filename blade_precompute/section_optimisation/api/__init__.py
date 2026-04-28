@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
 
+from blade_precompute.section_properties.core.types import SectionSolveResult
 from blade_precompute.section_properties.engine.geometry import SectionDefinition
 
 from ..engine.evaluator import DesignEvaluator
@@ -18,14 +20,14 @@ from ..core.types import (
     ExtremeLoads,
     OptimBladeGeometry,
 )
-from ..io.yaml_loader import load_blade_geometry
+from ..io.blade_geometry_loader import load_blade_geometry
 
 
 class BladeDesignProblem:
     """
     Cohesive sizing workflow: design problem + ``evaluate`` / ``build_sections``.
 
-    Uses :class:`~section_optimisation.core.protocols.PrescribedResultantDriver` internally
+    Uses :class:`~section_optimisation.engine.beam_k7.PrescribedResultantDriver` internally
     via :class:`~section_optimisation.engine.evaluator.DesignEvaluator`.
     """
 
@@ -37,9 +39,18 @@ class BladeDesignProblem:
     def problem(self) -> DesignProblem:
         return self._problem
 
+    @property
+    def evaluator(self) -> DesignEvaluator:
+        """Midsurface station caches; shared with :class:`BladeOptimizer` when the optimizer is constructed with it."""
+        return self._evaluator
+
+    def seed_stations(self, dv: DesignVector, results: Sequence[SectionSolveResult]) -> None:
+        """Warm the evaluator from existing midsurface results (e.g. precompute section properties at ``dv``)."""
+        self._evaluator.seed_stations(dv, results)
+
     @staticmethod
     def load_geometry(path: str | Path) -> OptimBladeGeometry:
-        """Load :class:`~section_optimisation.core.types.OptimBladeGeometry` from YAML."""
+        """Load :class:`~section_optimisation.core.types.OptimBladeGeometry` from a blade spec."""
         return load_blade_geometry(path)
 
     @staticmethod

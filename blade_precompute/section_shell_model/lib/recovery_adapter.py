@@ -17,13 +17,18 @@ check_panel_equilibrium()
     Post-solve compatibility: compare Nx/Nxy at shared boundaries between consecutive panels.
 
 Adds ``examples/section_stress_model`` to ``sys.path`` when importing the recovery module.
+
+Design-time skin stacks (:class:`~blade_precompute.section_properties.engine.laminate.LaminateDefinition`)
+used in section optimisation are bridged to the thin-wall ``skin_lam`` contract by
+:class:`~blade_precompute.section_optimisation.engine.mitc4_eval.LaminateDefinitionMitc4SkinAdapter`
+before :func:`run_section_with_mitc4_shell` (real orthotropic ``Ply`` list + ``E``/``nu``/``t``).
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Sequence  # noqa: TC003 — runtime hints for panel lists
 
 import numpy as np
 
@@ -34,8 +39,7 @@ from .types import FieldProvenance, ProvenanceKind, SectionShellRecoveryBundle, 
 
 
 def _stress_model_root() -> Path:
-    # lib/ -> section_shell_model/ -> examples/
-    return Path(__file__).resolve().parents[2] / "section_stress_model"
+    return Path(__file__).resolve().parents[3] / "examples" / "section_stress_model"
 
 
 def _ensure_stress_imports():
@@ -327,7 +331,7 @@ def _mitc4_global_coupled_solve_from_thin_wall(
     dB_dx: float,
     n_elements_per_panel: NElements,
     reference_panel_index: int,
-    global_bc_mode: str = "legacy",
+    global_bc_mode: str = "full_clamp",
     interface_constraint_mode: str = "transformed_basis",
     enforce_traction_balance_at_cusp: bool = False,
     traction_penalty_alpha: float = 1e-2,
@@ -378,7 +382,7 @@ def _mitc4_global_coupled_solve_from_thin_wall(
         interface_constraint_mode=interface_constraint_mode,
         enforce_traction_balance_at_cusp=enforce_traction_balance_at_cusp,
         traction_penalty_alpha=traction_penalty_alpha,
-    )
+    )[:2]
 
     ref: ShellPanelResultants | None = None
     if reference_panel_index < len(all_panel_results) and all_panel_results[reference_panel_index]:
@@ -443,6 +447,53 @@ def _merge_nose_panels(
     return new_p, new_q, new_s
 
 
+def collect_mitc4_panel_clt_stack(panels: Sequence[Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
+    """Build per-panel CLT stiffness ``ABD`` (6×6) and scalars used by MITC4 assembly.
+
+    Returns
+    -------
+    abd_stack : (n_valid, 6, 6)
+    thickness_m : (n_valid,)
+    G_eff : (n_valid,)
+    labels : length n_valid
+    """
+    _ensure_stress_imports()
+    from lib.laminate_clpt import abd_stack  # type: ignore[import-untyped]
+
+    abds: list[np.ndarray] = []
+    thicks: list[float] = []
+    geffs: list[float] = []
+    labels: list[str] = []
+    for pi, p in enumerate(panels):
+        s = getattr(p, "s", None)
+        if s is None or len(s) < 2:
+            continue
+        plies = p.lam.build_plies()
+        A_mat, B_mat, D_mat = abd_stack(plies)
+        ABD = np.block([[A_mat, B_mat], [B_mat, D_mat]])
+        thickness = float(p.lam.t)
+        nu = float(p.lam.nu)
+        E_p = float(p.lam.E)
+        G_eff = E_p / (2.0 * (1.0 + nu))
+        abds.append(np.asarray(ABD, dtype=np.float64))
+        thicks.append(thickness)
+        geffs.append(G_eff)
+        labels.append(str(getattr(p, "label", "") or f"panel_{pi}"))
+    if not abds:
+        return (
+            np.zeros((0, 6, 6), dtype=np.float64),
+            np.zeros(0, dtype=np.float64),
+            np.zeros(0, dtype=np.float64),
+            [],
+        )
+    return (
+        np.stack(abds, axis=0),
+        np.asarray(thicks, dtype=np.float64),
+        np.asarray(geffs, dtype=np.float64),
+        labels,
+    )
+
+
 # ---------------------------------------------------------------------------
 # MITC4 entry point
 # ---------------------------------------------------------------------------
@@ -463,7 +514,7 @@ def run_section_with_mitc4_shell(
     reference_panel_index: int = 0,
     n_elements_per_panel: NElements = 10,
     use_global_coupled: bool = True,
-    global_bc_mode: str = "legacy",
+    global_bc_mode: str = "full_clamp",
     interface_constraint_mode: str = "transformed_basis",
     enforce_traction_balance_at_cusp: bool = False,
     traction_penalty_alpha: float = 1e-2,
@@ -526,6 +577,7 @@ def run_section_with_mitc4_shell(
             airfoil, panels, webs_geom, q_tot, sig_p, B, dB_dx, n_elements_per_panel, reference_panel_index
         )
 
+    abd_p, t_p, g_p, lab_p = collect_mitc4_panel_clt_stack(panels)
     return SectionShellRecoveryBundle(
         panels=panels,
         booms=booms,
@@ -549,6 +601,10 @@ def run_section_with_mitc4_shell(
         all_panel_mitc4_results=all_panel_results,
         all_panel_mitc4_diagnostics=all_panel_diag,
         vlasov_result=vlasov,
+        mitc4_panel_abd=abd_p,
+        mitc4_panel_thickness_m=t_p,
+        mitc4_panel_G_eff=g_p,
+        mitc4_panel_labels=lab_p,
     )
 
 
@@ -573,7 +629,7 @@ def run_section_both(
     reference_station_index: int | None = None,
     n_elements_per_panel: int = 10,
     use_global_coupled: bool = True,
-    global_bc_mode: str = "legacy",
+    global_bc_mode: str = "full_clamp",
     interface_constraint_mode: str = "transformed_basis",
     merge_nose: bool = False,
 ) -> tuple[SectionShellRecoveryBundle, SectionShellRecoveryBundle]:
@@ -647,6 +703,7 @@ def run_section_both(
         all_panel_results, all_panel_diag, ref_mitc4, vlasov = _mitc4_solve_from_thin_wall(
             airfoil, panels, webs_geom, q_tot, sig_p, B, dB_dx, n_elements_per_panel, reference_panel_index
         )
+    abd_pb, t_pb, g_pb, lab_pb = collect_mitc4_panel_clt_stack(panels)
     mitc4_bundle = SectionShellRecoveryBundle(
         panels=panels,
         booms=booms,
@@ -670,6 +727,10 @@ def run_section_both(
         all_panel_mitc4_results=all_panel_results,
         all_panel_mitc4_diagnostics=all_panel_diag,
         vlasov_result=vlasov,
+        mitc4_panel_abd=abd_pb,
+        mitc4_panel_thickness_m=t_pb,
+        mitc4_panel_G_eff=g_pb,
+        mitc4_panel_labels=lab_pb,
     )
 
     return mvp_bundle, mitc4_bundle

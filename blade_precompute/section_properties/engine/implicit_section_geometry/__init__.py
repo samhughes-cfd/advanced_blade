@@ -1,6 +1,10 @@
 from .constraints import ConstrainedGeometry, build_constrained_geometry, offset_inner_boundary
 from .extract import GridSpec, extract_midline_from_offset_boundaries, extract_zero_contour_polyline, sample_grid
-from .pipeline import ImplicitSectionBuildResult, build_section_from_constraints
+from .pipeline import (
+    ConstraintSectionBuildResult,
+    ImplicitSectionBuildResult,
+    build_section_from_constraints,
+)
 from .sdf import BoxSDF, CircleSDF, IntersectionSDF, PolygonSDF, UnionSDF, sdf_intersection, sdf_union
 from .solver import SDFSectionSolver
 from .types import (
@@ -33,6 +37,7 @@ __all__ = [
     "ConstrainedGeometry",
     "offset_inner_boundary",
     "build_constrained_geometry",
+    "ConstraintSectionBuildResult",
     "ImplicitSectionBuildResult",
     "build_section_from_constraints",
     "SDFSectionSolver",

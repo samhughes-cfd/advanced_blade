@@ -43,7 +43,7 @@ from numpy.typing import NDArray
 
 
 def _ensure_stress_imports() -> None:
-    root = Path(__file__).resolve().parents[2] / "section_stress_model"
+    root = Path(__file__).resolve().parents[3] / "examples" / "section_stress_model"
     s = str(root)
     if s not in sys.path:
         sys.path.insert(0, s)

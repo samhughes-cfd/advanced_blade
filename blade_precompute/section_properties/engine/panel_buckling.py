@@ -123,9 +123,35 @@ def composite_edge_panel_stresses_from_reference(
     return out
 
 
+def _bending_d_condensed(ABD: NDArray[np.float64]) -> NDArray[np.float64]:
+    """
+    Bending stiffness for buckling with membrane–bending coupling (3×3).
+
+    ``D* = D − B A⁻¹ Bᵀ`` (static condensation of in-plane dofs) so asymmetric
+    laminates use a physically consistent **bending** operator instead of
+    uncoupled ``D`` alone.
+    """
+    abd = np.asarray(ABD, dtype=np.float64).reshape(6, 6)
+    a3 = abd[0:3, 0:3]
+    b3 = abd[0:3, 3:6]
+    d3 = abd[3:6, 3:6]
+    if np.linalg.norm(b3) < 1e-20 * (np.linalg.norm(d3) + 1.0):
+        return d3
+    reg = 1e-12 * (np.trace(a3) / 3.0 + 1.0) * np.eye(3, dtype=np.float64)
+    a_inv = np.linalg.lstsq(a3 + reg, np.eye(3), rcond=None)[0]
+    return d3 - b3 @ a_inv @ b3.T
+
+
 def _D_effective(ABD: NDArray[np.float64]) -> Tuple[float, float, float, float]:
-    """D11_eff, D12, D22_eff, D66 with Whitney D16/D26 knockdown."""
+    """D11_eff, D12, D22_eff, D66 with Whitney D16/D26 knockdown (full 6×6 ABD)."""
     d_blk = ABD[3:6, 3:6]
+    return _d_bending_whitney_knockdown(d_blk)
+
+
+def _d_bending_whitney_knockdown(
+    d_blk: NDArray[np.float64],
+) -> Tuple[float, float, float, float]:
+    d_blk = np.asarray(d_blk, dtype=np.float64).reshape(3, 3)
     d11 = float(d_blk[0, 0])
     d12 = float(d_blk[0, 1])
     d22 = float(d_blk[1, 1])
@@ -189,6 +215,8 @@ def assess_panel_buckling_section(
     frame_spacing_m: float,
     sigma_yy: NDArray[np.float64] | None = None,
     m_max: int = 20,
+    *,
+    use_abd_bending_condensation: bool = True,
 ) -> PanelBucklingSectionResult:
     """
     Assess panel buckling for composite strip edges at one station.
@@ -211,6 +239,11 @@ def assess_panel_buckling_section(
         Optional peak compressive ``σ22`` per edge [Pa] (positive = compression).
     m_max
         Maximum half-wave count for minimisation along ``a``.
+    use_abd_bending_condensation
+        If True, build effective bending from ``D* = D − B A⁻¹ Bᵀ`` (full 6×6
+        ABD) before the orthotropic Lekhnitskii/Thielemann closed forms; this
+        better reflects asymmetric / coupled laminates. If False, use former
+        treatment (``D`` block only, Whitney D16/D26 knockdown).
     """
     edge_results: List[PanelBucklingResult] = []
     bi_max = 0.0
@@ -221,7 +254,10 @@ def assess_panel_buckling_section(
 
     for local_i, (e_idx, lam) in enumerate(zip(comp_edge_indices, lams)):
         abd = lam.build_ABD()
-        d11, d12, d22, d66 = _D_effective(abd)
+        if use_abd_bending_condensation:
+            d11, d12, d22, d66 = _d_bending_whitney_knockdown(_bending_d_condensed(abd))
+        else:
+            d11, d12, d22, d66 = _D_effective(abd)
 
         b = float(fe.b[e_idx])
         a = frame_spacing_m

@@ -13,7 +13,7 @@ Axis conventions for :class:`~blade_utilities.recovery.tensor_cache.cache.Recove
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Protocol
+from typing import List, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,9 +25,12 @@ class RecoveryCacheStorage:
 
     L_rec: NDArray[np.float64]
     L_iso: NDArray[np.float64]
-    L_rec_sec: Optional[NDArray[np.float64]]
-    F1: NDArray[np.float64]
-    F2: NDArray[np.float64]
+    #: Ply strengths [Pa] for Hashin FI, shape ``(n_s, n_comp, n_ply_max)`` each.
+    Xt: NDArray[np.float64]
+    Xc: NDArray[np.float64]
+    Yt: NDArray[np.float64]
+    Yc: NDArray[np.float64]
+    S12: NDArray[np.float64]
     sigma_allow_iso: NDArray[np.float64]
     Zt: NDArray[np.float64]
     S13: NDArray[np.float64]
@@ -45,7 +48,6 @@ class RecoveryCacheStorage:
     M6: NDArray[np.float64]
     shear_center: NDArray[np.float64]
     mass_center: NDArray[np.float64]
-    enable_tier3: bool
 
 
 class RecoveryCacheProtocol(Protocol):
@@ -55,15 +57,13 @@ class RecoveryCacheProtocol(Protocol):
 
     def recover_iso_stresses(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64]: ...
 
-    def eval_tsai_wu_fi(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64]: ...
+    def eval_hashin_fi(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64]: ...
 
     def eval_von_mises_fi(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64]: ...
 
-    def eval_delamination_fi(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64] | None: ...
-
     def recover_all_fi(
         self, beam_resultants: NDArray[np.float64]
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64] | None]: ...
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]: ...
 
     def recover_ply_stresses_chunked(
         self, beam_resultants: NDArray[np.float64], chunk_size: int = 512

@@ -5,27 +5,28 @@ Extreme (spanwise only)
 -----------------------
 Required columns (header row, ``#`` comments allowed):
 
-- ``r_z_m`` — spanwise coordinate [m], **strictly increasing** root → tip
+- ``spanwise_pos`` — spanwise coordinate [m], **strictly increasing** root → tip
 - ``q_y_Npm`` — flapwise line load [N/m]
 - ``q_z_Npm`` — edgewise line load [N/m]
 - ``m_x_Nmpm`` — distributed torque about beam ``x`` [N·m/m]
 
-Optional bookkeeping column ``R_m`` is ignored if present.
+Optional bookkeeping column ``radial_pos`` is ignored if present.
 
 Operational (long format)
 -------------------------
-One row per ``(t_s, r_z_m)`` sample:
+One row per ``(t_s, spanwise_pos)`` sample:
 
 - ``t_s`` — time [s]
-- ``r_z_m``, ``q_y_Npm``, ``q_z_Npm``, ``m_x_Nmpm`` as above
+- ``spanwise_pos``, ``q_y_Npm``, ``q_z_Npm``, ``m_x_Nmpm`` as above
 
-Within each time slice, ``r_z_m`` must be strictly increasing and **unique** pairs
-``(t_s, r_z_m)`` across the file.
+Within each time slice, ``spanwise_pos`` must be strictly increasing and **unique** pairs
+``(t_s, spanwise_pos)`` across the file.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
@@ -35,7 +36,9 @@ from blade_precompute.global_beam_model.engine.distributed_load_integrator impor
     IntegratedResultants,
 )
 from blade_precompute.section_optimisation.core.types import ExtremeLoads
-from blade_analysis.fatigue_damage.core.loads import ResultantHistory
+
+if TYPE_CHECKING:
+    from blade_analysis.fatigue_damage.core.loads import ResultantHistory
 
 
 def _read_dat_table(path: str | Path) -> tuple[NDArray[np.float64], list[str]]:
@@ -46,7 +49,7 @@ def _read_dat_table(path: str | Path) -> tuple[NDArray[np.float64], list[str]]:
         s = line.strip()
         if not s or s.startswith("#"):
             continue
-        if s.lower().startswith("r_z_m") or s.lower().startswith("t_s"):
+        if s.lower().startswith(("t_s", "spanwise_pos", "r_z_m")):
             header_idx = i
             break
     if header_idx is None:
@@ -74,7 +77,7 @@ def _col_index(header: list[str], name: str) -> int:
         raise ValueError(f"Missing required column {name!r} in header {header}.") from e
 
 
-def validate_strictly_increasing_z(z: NDArray[np.float64], *, name: str = "r_z_m") -> None:
+def validate_strictly_increasing_z(z: NDArray[np.float64], *, name: str = "spanwise_pos") -> None:
     z = np.asarray(z, dtype=np.float64).ravel()
     if z.size < 2:
         raise ValueError(f"{name}: need at least two stations.")
@@ -96,7 +99,7 @@ def validate_z_matches_geometry(
         )
     if not np.allclose(a, b, rtol=0.0, atol=tol):
         raise ValueError(
-            f"Load r_z_m does not match OptimBladeGeometry.z_stations within tol={tol}."
+            f"Load spanwise_pos does not match OptimBladeGeometry.z_stations within tol={tol}."
         )
 
 
@@ -112,7 +115,7 @@ def load_extreme_distributed_loads_dat(
     Returns ``(z, q_y, q_z, m_x)`` each 1-D ``float64`` of length ``n_station``.
     """
     arr, header = _read_dat_table(path)
-    iz = _col_index(header, "r_z_m")
+    iz = _col_index(header, "spanwise_pos")
     iqy = _col_index(header, "q_y_Npm")
     iqz = _col_index(header, "q_z_Npm")
     imx = _col_index(header, "m_x_Nmpm")
@@ -140,7 +143,7 @@ def load_operational_distributed_loads_dat(
     """
     arr, header = _read_dat_table(path)
     it = _col_index(header, "t_s")
-    iz = _col_index(header, "r_z_m")
+    iz = _col_index(header, "spanwise_pos")
     iqy = _col_index(header, "q_y_Npm")
     iqz = _col_index(header, "q_z_Npm")
     imx = _col_index(header, "m_x_Nmpm")
@@ -148,7 +151,7 @@ def load_operational_distributed_loads_dat(
     z_vals = arr[:, iz]
     pairs = np.stack([t_vals, z_vals], axis=1)
     if pairs.shape[0] != np.unique(pairs, axis=0).shape[0]:
-        raise ValueError("Duplicate (t_s, r_z_m) pairs in operational file.")
+        raise ValueError("Duplicate (t_s, spanwise_pos) pairs in operational file.")
     uniq_t = np.unique(t_vals)
     n_t = int(uniq_t.size)
     z_ref: NDArray[np.float64] | None = None
@@ -166,7 +169,7 @@ def load_operational_distributed_loads_dat(
             if z_geometry is not None:
                 validate_z_matches_geometry(z_ref, z_geometry, tol=z_match_tol)
         elif not np.allclose(zk, z_ref, rtol=0.0, atol=z_match_tol):
-            raise ValueError("r_z_m grid differs between time slices.")
+            raise ValueError("spanwise_pos grid differs between time slices.")
         n_z = zk.size
         if n_z_expect is None:
             n_z_expect = n_z
@@ -195,9 +198,10 @@ def extreme_loads_from_distributed(
     q_y: NDArray[np.float64],
     q_z: NDArray[np.float64],
     m_x: NDArray[np.float64],
+    q_x: NDArray[np.float64] | None = None,
 ) -> ExtremeLoads:
     """Integrate distributed loads → :class:`~section_optimisation.core.types.ExtremeLoads`."""
-    res = DistributedLoadIntegrator.integrate(z, q_y, q_z, m_x)
+    res = DistributedLoadIntegrator.integrate(z, q_y, q_z, m_x, q_x=q_x)
     return extreme_loads_from_integrated(res)
 
 
@@ -221,9 +225,10 @@ def resultant_history_from_distributed(
     q_y: NDArray[np.float64],
     q_z: NDArray[np.float64],
     m_x: NDArray[np.float64],
-) -> ResultantHistory:
+    q_x: NDArray[np.float64] | None = None,
+) -> "ResultantHistory":
     """Integrate each time row → :class:`~blade_analysis.fatigue_damage.core.loads.ResultantHistory`."""
-    series = DistributedLoadIntegrator.integrate_timeseries(z, q_y, q_z, m_x)
+    series = DistributedLoadIntegrator.integrate_timeseries(z, q_y, q_z, m_x, q_x=q_x)
     n_t = len(series)
     n_z = z.size
     N = np.zeros((n_t, n_z), dtype=np.float64)
@@ -240,6 +245,8 @@ def resultant_history_from_distributed(
         Mz[it] = r.Mz
         T[it] = r.T
     B = np.zeros_like(N, dtype=np.float64)
+    from blade_analysis.fatigue_damage.core.loads import ResultantHistory
+
     return ResultantHistory(
         z_stations=z.copy(),
         time=np.asarray(t, dtype=np.float64).ravel(),
@@ -258,7 +265,7 @@ def resultant_history_from_operational_dat(
     *,
     z_geometry: NDArray[np.float64] | None = None,
     z_match_tol: float = 1e-3,
-) -> ResultantHistory:
+) -> "ResultantHistory":
     """Parse operational ``.dat`` and return integrated :class:`~blade_analysis.fatigue_damage.core.loads.ResultantHistory`."""
     t, z, q_y, q_z, m_x = load_operational_distributed_loads_dat(
         path, z_geometry=z_geometry, z_match_tol=z_match_tol

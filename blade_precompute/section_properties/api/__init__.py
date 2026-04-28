@@ -1,4 +1,4 @@
-"""Public façade for section YAML load + solve (consistent verb vocabulary)."""
+"""Public façade for section spec load + solve (consistent verb vocabulary)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from ..engine.geometry import SectionDefinition
 from ..engine.implicit_section_geometry import GeometryConstraintSpec, build_section_from_constraints
 from ..engine.mesh import build_line_mesh, subcomponents_by_type
 from ..engine.solver import MidsurfaceSectionSolver
-from ..io.yaml_loader import load_section_from_yaml
+from ..io.section_loader import load_section_from_spec
 
 
 @dataclass
@@ -67,11 +67,13 @@ class SectionAnalysis:
     ) -> None:
         self._solver: SectionSolverProtocol = solver or MidsurfaceSectionSolver()
         self._config = config or AnalysisConfig()
+        self._executed: bool = False
+        self._result: SectionSolveResult | None = None
 
     @staticmethod
     def load(path: str | Path) -> SectionDefinition:
-        """Parse YAML into :class:`~section_model.engine.geometry.SectionDefinition`."""
-        return load_section_from_yaml(path)
+        """Parse section spec into :class:`~section_model.engine.geometry.SectionDefinition`."""
+        return load_section_from_spec(path)
 
     def solve(
         self,
@@ -108,7 +110,30 @@ class SectionAnalysis:
                 reference_forces_6=panel_reference_forces_6,
             )
 
+        self._result = result
+        self._executed = True
         return result
+
+    def execute(
+        self,
+        section: SectionDefinition,
+        *,
+        panel_frame_spacing_m: float | None = None,
+        panel_reference_forces_6: NDArray[np.float64] | None = None,
+    ) -> "SectionAnalysis":
+        """Orchestrator-style alias for compatibility with API conventions."""
+        self.solve(
+            section,
+            panel_frame_spacing_m=panel_frame_spacing_m,
+            panel_reference_forces_6=panel_reference_forces_6,
+        )
+        return self
+
+    def get_results(self) -> SectionSolveResult:
+        """Return the last result from `solve()` / `execute()`."""
+        if not self._executed or self._result is None:
+            raise RuntimeError("SectionAnalysis.execute() or SectionAnalysis.solve() must be called first.")
+        return self._result
 
     def _print_coupling_notice(self, result: SectionSolveResult) -> None:
         k = result.K6

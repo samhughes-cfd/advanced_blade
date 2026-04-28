@@ -1,5 +1,5 @@
 """
-Load :class:`~section_model.engine.geometry.SectionDefinition` from YAML + ply libraries.
+Load :class:`~section_model.engine.geometry.SectionDefinition` from mapping specs.
 """
 
 from __future__ import annotations
@@ -9,58 +9,30 @@ from typing import Any, Dict, List, Mapping, MutableMapping, Optional
 import warnings
 
 import numpy as np
-import yaml
+
+from blade_precompute._utils.spec_io import load_mapping
 
 from ..engine.geometry import SectionDefinition, SubcomponentGeometry
 from ..engine.implicit_section_geometry import GeometryConstraintSpec, build_section_from_constraints
 from ..engine.materials import IsotropicMaterial
-from .yaml_materials import laminate_from_yaml_spec
+from .materials_loader import laminate_from_mapping_spec
 
 
-def load_section_from_yaml(
+def load_section_from_spec(
     path: str | Path,
     *,
     ply_library: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> SectionDefinition:
-    """
-    Parse a YAML file into :class:`~section_model.engine.geometry.SectionDefinition`.
-
-    Expected structure::
-
-        station_z: 0.0
-        R_deformed: null
-        ply_library:
-          default_ud:
-            E1: 40e9
-            ...
-        subcomponents:
-          skin:
-            midsurface_coords: [[0,0],[0.1,0]]
-            thickness: 0.002
-            strip_width_m: 0.05
-            material: GFRP_laminate
-            laminate:
-              ply_type: default_ud
-              layup: [0, 90, 90, 0]
-          insert:
-            midsurface_coords: [[0,0.05],[0.05,0.05]]
-            thickness: 0.003
-            material: aluminium_6082
-            E: 70e9
-            nu: 0.33
-            rho: 2700
-            sigma_allow: 270e6
-    """
+    """Parse a section mapping spec into :class:`~section_model.engine.geometry.SectionDefinition`."""
     p = Path(path)
-    with p.open("r", encoding="utf-8") as f:
-        data: MutableMapping[str, Any] = yaml.safe_load(f)
+    data: MutableMapping[str, Any] = load_mapping(p)
 
     ply_lib: Dict[str, Mapping[str, Any]] = dict(data.get("ply_library") or {})
     if ply_library:
         ply_lib.update(ply_library)
 
     if "implicit_geometry" in data:
-        return _load_implicit_section_from_yaml(data, ply_lib)
+        return _load_implicit_section_from_spec(data, ply_lib)
 
     subs_raw = data["subcomponents"]
     if not isinstance(subs_raw, dict):
@@ -90,12 +62,14 @@ def load_section_from_yaml(
         mat_key = str(spec.get("material", name))
         mb = materials_block.get(mat_key, {})
         lam_spec = dict(mb)
-        lam_spec.update({k: v for k, v in spec.items() if k not in ("midsurface_coords", "material", "thickness", "strip_width_m")})
+        lam_spec.update(
+            {k: v for k, v in spec.items() if k not in ("midsurface_coords", "material", "thickness", "strip_width_m")}
+        )
         if "laminate" in spec:
             lam_spec.update(spec["laminate"])
         is_comp = "layup" in lam_spec and "ply_type" in lam_spec
         if is_comp:
-            lam = laminate_from_yaml_spec(lam_spec, ply_lib, mat_key)
+            lam = laminate_from_mapping_spec(lam_spec, ply_lib, mat_key)
             sub_list.append(
                 SubcomponentGeometry(
                     name=name,
@@ -137,7 +111,7 @@ def _material_from_block(
 ) -> object:
     is_comp = "layup" in spec and "ply_type" in spec
     if is_comp:
-        return laminate_from_yaml_spec(dict(spec), ply_lib, name)
+        return laminate_from_mapping_spec(dict(spec), ply_lib, name)
     return IsotropicMaterial(
         name=name,
         E=float(spec.get("E", 70e9)),
@@ -147,7 +121,7 @@ def _material_from_block(
     )
 
 
-def _load_implicit_section_from_yaml(
+def _load_implicit_section_from_spec(
     data: Mapping[str, Any],
     ply_lib: Mapping[str, Mapping[str, Any]],
 ) -> SectionDefinition:

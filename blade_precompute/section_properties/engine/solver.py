@@ -1,8 +1,21 @@
 """
-Midsurface strip section solver: warping (1D graph), ``K6``/``K7``, Tier 1 bases.
+Midsurface strip section solver: warping (1D graph), energy-consistent K7, CLPT bases.
 
-Theory version tag: **midsurface-v1** — strip-wise CLPT, graph Laplacian warping,
-Bernoulli-style membrane bending coupling. Not publication-grade Vlasov shell theory.
+Theory version tag: **midsurface-v2** — unified full-shell strip elements (composite
+and isotropic), energy-integral K7, and a single subcomponent basis.
+
+K7 assembly
+-----------
+Every strip edge carries a 6×6 laminate ABD (composite) or isotropic shell ABD
+(A = Q·t, B = 0, D = Q·t³/12). The cross-section stiffness K7[m,n] is the bilinear
+energy integral
+
+    K7[m, n] = Σ_e  L_e · ε6_mode(e, m)^T @ ABD(e) @ ε6_mode(e, n)
+
+where ε6_mode(e, m) is the 6-component CLPT strain vector in the strip frame for
+generalised beam mode m (modes 0-5: axial/bending/shear/torsion, mode 6: warping).
+This is **exactly dual** to the subcomponent resultant basis, ensuring K7_inv @ R
+gives beam-mode amplitudes that project correctly back to ply stresses.
 """
 
 from __future__ import annotations
@@ -66,48 +79,33 @@ def _eps6_mode(
     return out
 
 
-def _assemble_K6_open_strip(
-    section: SectionDefinition,
+def _assemble_K7_strip(
     fe: StripElementData,
     y_e: float,
     z_e: float,
-) -> tuple[NDArray[np.float64], float]:
-    """Return (K6, GJ_strip_scalar)."""
-    K6 = np.zeros((6, 6), dtype=np.float64)
-    EA = EIy = EIz = EIyz = 0.0
-    GJ = 0.0
-    GA = 0.0
+    omega: NDArray[np.float64],
+    mesh: LineMesh,
+) -> NDArray[np.float64]:
+    """Energy-integral 7×7 cross-section stiffness.
+
+    K7[m, n] = Σ_e  L_e · ε6_mode(e,m)^T @ ABD(e) @ ε6_mode(e,n)
+
+    All 7 generalised beam modes (including warping, mode 6) and the full
+    per-edge ABD (composite or isotropic shell) are used, making K7 exactly
+    dual to the subcomponent resultant basis computed by :func:`_subcomponent_basis`.
+    """
+    om_max = float(np.max(np.abs(omega)) + 1e-30)
+    K7 = np.zeros((7, 7), dtype=np.float64)
     for e in range(fe.n_edges):
-        si = int(fe.subcomp_idx[e])
-        sub = section.subcomponents[si]
-        b, L, yc, zc = fe.b[e], fe.L[e], fe.y_mid[e], fe.z_mid[e]
-        t = _t_eff(section, si)
-        if sub.is_composite:
-            ABD = fe.ABD[e]
-            A11 = ABD[0, 0]
-            EA += A11 * b * L
-            EIy += A11 * b * L * (zc - z_e) ** 2
-            EIz += A11 * b * L * (yc - y_e) ** 2
-            EIyz += A11 * b * L * (yc - y_e) * (zc - z_e)
-            GJ += fe.G[e] * b * t**3 / 3.0 * L
-            GA += fe.G[e] * b * t * L
-        else:
-            c11 = fe.C_iso[e, 0, 0]
-            EA += c11 * sub.thickness * b * L
-            EIy += c11 * sub.thickness * b * L * (zc - z_e) ** 2
-            EIz += c11 * sub.thickness * b * L * (yc - y_e) ** 2
-            EIyz += c11 * sub.thickness * b * L * (yc - y_e) * (zc - z_e)
-            GJ += fe.G[e] * b * sub.thickness**3 / 3.0 * L
-            GA += fe.G[e] * b * sub.thickness * L
-    alpha = 5.0 / 6.0
-    K6[0, 0] = EA
-    K6[1, 1] = EIy
-    K6[2, 2] = EIz
-    K6[1, 2] = K6[2, 1] = -EIyz
-    K6[3, 3] = max(GJ, 1e-6)
-    K6[4, 4] = alpha * max(GA, 1e-6)
-    K6[5, 5] = alpha * max(GA, 1e-6)
-    return K6, GJ
+        i0, i1 = int(mesh.edges[e, 0]), int(mesh.edges[e, 1])
+        o_mid = 0.5 * (omega[i0] + omega[i1]) / om_max
+        L = fe.L[e]
+        # Stack ε6 for all 7 modes into (7, 6) matrix
+        eps6_modes = np.stack(
+            [_eps6_mode(e, m, fe, y_e, z_e, o_mid, o_mid) for m in range(7)]
+        )
+        K7 += L * (eps6_modes @ fe.ABD[e] @ eps6_modes.T)
+    return K7
 
 
 def _fix_iso_arrays(
@@ -186,21 +184,34 @@ def _pad_laminate_arrays(
     return n_ply_max, ABD_inv, Q_bar, T_ply, z_ply, Zt, S13, S23
 
 
-def _composite_basis(
-    section: SectionDefinition,
+def _subcomponent_basis(
     fe: StripElementData,
-    comp_indices: List[int],
+    sub_indices: List[int],
     y_e: float,
     z_e: float,
     omega: NDArray[np.float64],
     mesh: LineMesh,
 ) -> NDArray[np.float64]:
-    n_comp = len(comp_indices)
-    if n_comp == 0:
+    """Length-averaged CLPT resultant basis per subcomponent.
+
+    Returns
+    -------
+    basis : (n_sub, 7, 6)
+        ``basis[c, m, :]`` = length-weighted average of ``ABD(e) @ ε6_mode(e, m)``
+        over all edges belonging to subcomponent c.  Consistent with the energy
+        form used by :func:`_assemble_K7_strip` because both use the same ABD and
+        the same :func:`_eps6_mode` kernel.
+
+    Replaces the former ``_composite_basis`` (shape (n,7,6)) and
+    ``_isotropic_basis`` (shape (n,7,3)) with a single unified path.
+    Isotropic edges now carry the full shell ABD so the output is always 6-wide.
+    """
+    n_sub = len(sub_indices)
+    if n_sub == 0:
         return np.zeros((0, 7, 6), dtype=np.float64)
-    basis = np.zeros((n_comp, 7, 6), dtype=np.float64)
+    basis = np.zeros((n_sub, 7, 6), dtype=np.float64)
     om_max = float(np.max(np.abs(omega)) + 1e-30)
-    for c, si in enumerate(comp_indices):
+    for c, si in enumerate(sub_indices):
         total_L = 0.0
         acc = np.zeros((7, 6), dtype=np.float64)
         for e in range(fe.n_edges):
@@ -211,77 +222,65 @@ def _composite_basis(
             L = fe.L[e]
             for m in range(7):
                 eps6 = _eps6_mode(e, m, fe, y_e, z_e, o_mid, o_mid)
-                n6 = fe.ABD[e] @ eps6
-                acc[m] += n6 * L
+                acc[m] += fe.ABD[e] @ eps6 * L
             total_L += L
         if total_L > 1e-30:
-            basis[c, :, :] = acc / total_L
+            basis[c] = acc / total_L
     return basis
 
 
-def _isotropic_basis(
-    section: SectionDefinition,
+def _e_omega_basis(
     fe: StripElementData,
-    iso_indices: List[int],
-    y_e: float,
-    z_e: float,
     omega: NDArray[np.float64],
     mesh: LineMesh,
 ) -> NDArray[np.float64]:
-    n_iso = len(iso_indices)
-    basis = np.zeros((n_iso, 7, 3), dtype=np.float64)
-    om_max = float(np.max(np.abs(omega)) + 1e-30)
-    for c, si in enumerate(iso_indices):
-        total_L = 0.0
-        acc = np.zeros((7, 3), dtype=np.float64)
-        for e in range(fe.n_edges):
-            if int(fe.subcomp_idx[e]) != si:
-                continue
-            i0, i1 = int(mesh.edges[e, 0]), int(mesh.edges[e, 1])
-            o_mid = 0.5 * (omega[i0] + omega[i1]) / om_max
-            L = fe.L[e]
-            t = fe.t_membrane[e]
-            C = fe.C_iso[e]
-            for m in range(7):
-                eps6 = _eps6_mode(e, m, fe, y_e, z_e, o_mid, o_mid)
-                eps3 = eps6[0:3]
-                sig = C @ eps3
-                n_mem = t * sig * fe.b[e]
-                acc[m] += n_mem * L
-            total_L += L
-        if total_L > 1e-30:
-            basis[c, :, :] = acc / total_L
-    return basis
-
-
-def _k_w_and_Kww(
-    section: SectionDefinition,
-    fe: StripElementData,
-    omega: NDArray[np.float64],
-    mesh: LineMesh,
-    y_e: float,
-    z_e: float,
-) -> tuple[NDArray[np.float64], float, NDArray[np.float64]]:
-    om_max = float(np.max(np.abs(omega)) + 1e-30)
-    k_w = np.zeros(6, dtype=np.float64)
-    K_ww = 0.0
+    """Per-edge Eω product (E_axial × ω_mid) used in downstream homogenisation."""
     Eomega = np.zeros(fe.n_edges, dtype=np.float64)
     for e in range(fe.n_edges):
-        si = int(fe.subcomp_idx[e])
-        t = _t_eff(section, si)
         i0, i1 = int(mesh.edges[e, 0]), int(mesh.edges[e, 1])
         o_mid = 0.5 * (omega[i0] + omega[i1])
-        o_n = o_mid / om_max
-        b, L = fe.b[e], fe.L[e]
-        Eax = fe.E_axial[e]
-        dA = b * t * L
-        K_ww += Eax * o_n**2 * dA
-        Eomega[e] = Eax * o_mid
-        for mode in range(6):
-            eps6 = _eps6_mode(e, mode, fe, y_e, z_e, o_mid, o_n)
-            eps_ax = eps6[0]
-            k_w[mode] += Eax * o_n * eps_ax * dA
-    return k_w, float(K_ww), Eomega
+        Eomega[e] = fe.E_axial[e] * o_mid
+    return Eomega
+
+
+def _build_iso_clpt_arrays(
+    section: SectionDefinition,
+    fe: StripElementData,
+    iso_indices: List[int],
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """Build ABD_inv, Q_bar, z_ply for isotropic subs (single outer-surface ply).
+
+    The isotropic sub is treated as a single-ply shell evaluated at z = +t/2
+    (outer surface), giving σ = N/t + 6M/t² which captures membrane + bending.
+
+    Returns
+    -------
+    iso_ABD_inv : (n_iso, 6, 6)
+    iso_Q_bar   : (n_iso, 1, 3, 3)
+    iso_z_ply   : (n_iso, 1)
+    """
+    from .materials import IsotropicMaterial, build_isotropic_ABD, plane_stress_Q_isotropic
+
+    n_iso = len(iso_indices)
+    if n_iso == 0:
+        return (
+            np.zeros((0, 6, 6), dtype=np.float64),
+            np.zeros((0, 1, 3, 3), dtype=np.float64),
+            np.zeros((0, 1), dtype=np.float64),
+        )
+    iso_ABD_inv = np.zeros((n_iso, 6, 6), dtype=np.float64)
+    iso_Q_bar = np.zeros((n_iso, 1, 3, 3), dtype=np.float64)
+    iso_z_ply = np.zeros((n_iso, 1), dtype=np.float64)
+    for k, si in enumerate(iso_indices):
+        sub = section.subcomponents[si]
+        assert isinstance(sub.material, IsotropicMaterial)
+        mat = sub.material
+        t = float(max(sub.thickness, 1e-12))
+        ABD = build_isotropic_ABD(mat.E, mat.nu, t)
+        iso_ABD_inv[k] = np.linalg.inv(ABD)
+        iso_Q_bar[k, 0] = plane_stress_Q_isotropic(mat.E, mat.nu)
+        iso_z_ply[k, 0] = t / 2.0  # outer surface: captures membrane + bending
+    return iso_ABD_inv, iso_Q_bar, iso_z_ply
 
 
 class MidsurfaceSectionSolver:
@@ -305,25 +304,54 @@ class MidsurfaceSectionSolver:
         lu = spla.splu(K_pin.tocsc())
         omega = lu.solve(f_pin)
 
-        k_w, K_ww, E_omega_basis = _k_w_and_Kww(section, fe, omega, mesh, y_e, z_e)
-        K6, _ = _assemble_K6_open_strip(section, fe, y_e, z_e)
-        K7 = np.zeros((7, 7), dtype=np.float64)
-        K7[0:6, 0:6] = K6
-        K7[0:6, 6] = k_w
-        K7[6, 0:6] = k_w
-        K7[6, 6] = K_ww
+        # Principal sectorial coordinate normalisation: remove the E-weighted projection
+        # of omega onto {1, -(z-z_e), (y-y_e)} so that k_w[0:3] = 0 and K7 is positive
+        # definite. Without this, the pin at node 0 leaves an arbitrary constant that
+        # couples the warping column of K7 to axial/bending, violating the Cauchy-Schwarz
+        # bound and giving a negative K7 eigenvalue.
+        _E_dA = np.array([
+            fe.E_axial[e] * fe.b[e] * _t_eff(section, int(fe.subcomp_idx[e])) * fe.L[e]
+            for e in range(fe.n_edges)
+        ])
+        _o_mid = 0.5 * (omega[mesh.edges[:, 0]] + omega[mesh.edges[:, 1]])
+        _phi1 = -(fe.z_mid - z_e)
+        _phi2 = fe.y_mid - y_e
+        _ones = np.ones(fe.n_edges, dtype=np.float64)
+        _G = np.array([
+            [np.dot(_E_dA, _ones),           np.dot(_E_dA, _phi1),            np.dot(_E_dA, _phi2)],
+            [np.dot(_E_dA, _phi1),           np.dot(_E_dA, _phi1 * _phi1),    np.dot(_E_dA, _phi1 * _phi2)],
+            [np.dot(_E_dA, _phi2),           np.dot(_E_dA, _phi1 * _phi2),    np.dot(_E_dA, _phi2 * _phi2)],
+        ])
+        _rhs = np.array([
+            np.dot(_E_dA, _o_mid),
+            np.dot(_E_dA, _o_mid * _phi1),
+            np.dot(_E_dA, _o_mid * _phi2),
+        ])
+        _coeffs = np.linalg.solve(_G, _rhs)
+        _yn = mesh.nodes[:, 0]
+        _zn = mesh.nodes[:, 1]
+        omega -= _coeffs[0] + _coeffs[1] * (-(_zn - z_e)) + _coeffs[2] * (_yn - y_e)
+
+        # Energy-consistent K7 from full shell ABD on all edges (Fix 4b)
+        K7 = _assemble_K7_strip(fe, y_e, z_e, omega, mesh)
+        K6 = K7[0:6, 0:6].copy()
+        k_w = K7[0:6, 6].copy()
+        K_ww = float(K7[6, 6])
+        E_omega_basis = _e_omega_basis(fe, omega, mesh)
 
         comp_idx, iso_idx = subcomponents_by_type(section)
         names_c = [section.subcomponents[i].name for i in comp_idx]
         names_i = [section.subcomponents[i].name for i in iso_idx]
 
-        comp_basis = _composite_basis(section, fe, comp_idx, y_e, z_e, omega, mesh)
-        iso_basis = _isotropic_basis(section, fe, iso_idx, y_e, z_e, omega, mesh)
+        # Unified basis for all subcomponents (Fix 4b)
+        comp_basis = _subcomponent_basis(fe, comp_idx, y_e, z_e, omega, mesh)
+        iso_basis = _subcomponent_basis(fe, iso_idx, y_e, z_e, omega, mesh)
 
         n_ply_max, ABD_inv, Q_bar, T_ply, z_ply, Zt, S13, S23 = _pad_laminate_arrays(section, comp_idx)
 
         n_iso = len(iso_idx)
         iso_t, iso_C, iso_sig = _fix_iso_arrays(section, fe, iso_idx)
+        iso_ABD_inv, iso_Q_bar_clpt, iso_z_ply_clpt = _build_iso_clpt_arrays(section, fe, iso_idx)
 
         M6 = assemble_M6(section, fe, y_m, z_m)
         area = section_area(section, fe)
@@ -345,7 +373,7 @@ class MidsurfaceSectionSolver:
             K_ww=K_ww,
             k_w=k_w,
             composite_resultant_basis=comp_basis,
-            isotropic_resultant_basis=iso_basis if n_iso else np.zeros((0, 7, 3)),
+            isotropic_resultant_basis=iso_basis if n_iso else np.zeros((0, 7, 6)),
             composite_subcomp_names=names_c,
             isotropic_subcomp_names=names_i,
             ABD_inv=ABD_inv,
@@ -355,6 +383,9 @@ class MidsurfaceSectionSolver:
             iso_thickness=iso_t,
             iso_C=iso_C,
             iso_sigma_allow=iso_sig,
+            iso_ABD_inv=iso_ABD_inv,
+            iso_Q_bar=iso_Q_bar_clpt,
+            iso_z_ply=iso_z_ply_clpt,
             Zt=Zt,
             S13=S13,
             S23=S23,

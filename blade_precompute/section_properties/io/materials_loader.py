@@ -1,4 +1,4 @@
-"""Shared YAML helpers for orthotropic plies and laminate definitions."""
+"""Shared helpers for orthotropic plies and laminate definitions."""
 
 from __future__ import annotations
 
@@ -28,16 +28,12 @@ def orthotropic_ply_from_dict(name: str, d: Mapping[str, Any]) -> OrthotropicPly
     )
 
 
-def laminate_from_yaml_spec(
+def laminate_from_mapping_spec(
     spec: Mapping[str, Any],
     ply_lib: Mapping[str, Mapping[str, Any]],
     mat_key: str,
 ) -> LaminateDefinition:
-    """
-    Build :class:`LaminateDefinition` from a mapping containing ``layup`` and ``ply_type``.
-
-    ``spec`` must include ``ply_type`` (key into ``ply_lib``) and ``layup`` (angles in degrees).
-    """
+    """Build :class:`LaminateDefinition` from ``layup`` and ``ply_type`` mapping fields."""
     layup: List[float] = [float(a) for a in spec["layup"]]
     shear = bool(spec.get("shear_lag_correction", True))
     pname = str(spec["ply_type"])

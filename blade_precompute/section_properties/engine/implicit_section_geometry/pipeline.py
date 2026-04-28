@@ -12,7 +12,7 @@ from .types import GeometryConstraintSpec, MedialAxisDiagnostics
 
 
 @dataclass
-class ImplicitSectionBuildResult:
+class ConstraintSectionBuildResult:
     section: SectionDefinition
     diagnostics: dict[str, MedialAxisDiagnostics]
 
@@ -49,7 +49,7 @@ def _ensure_segment(a: np.ndarray, b: np.ndarray, direction: np.ndarray) -> np.n
     return np.vstack([aa, bb])
 
 
-def build_section_from_constraints(spec: GeometryConstraintSpec) -> ImplicitSectionBuildResult:
+def build_section_from_constraints(spec: GeometryConstraintSpec) -> ConstraintSectionBuildResult:
     geom = build_constrained_geometry(spec)
 
     skin_mid = extract_midline_from_offset_boundaries(
@@ -120,5 +120,10 @@ def build_section_from_constraints(spec: GeometryConstraintSpec) -> ImplicitSect
         "web_right": web_right_diag,
         "spar_cap": cap_diag,
     }
-    return ImplicitSectionBuildResult(section=section, diagnostics=diagnostics)
+    return ConstraintSectionBuildResult(section=section, diagnostics=diagnostics)
+
+
+# Backward-compatible alias; prefer ConstraintSectionBuildResult to avoid confusion
+# with section_geometry.engine.implicit_section_geometry.pipeline.ImplicitSectionBuildResult.
+ImplicitSectionBuildResult = ConstraintSectionBuildResult
 

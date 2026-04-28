@@ -12,16 +12,10 @@ from __future__ import annotations
 from .api import AnalysisConfig, SectionAnalysis
 from .core.types import MaterialProps, SectionProps, SectionSolveResult, SectionSolverProtocol
 from .engine.clpt_recovery import clpt_ply_stresses_section_frame, rotate_plies_to_material
-from .engine.failure_criteria import (
-    tsai_wu_fi as tsai_wu_fi_batch,
-    tsai_wu_fi_plies,
-    tsai_wu_strength_tensors,
-    von_mises_plane_stress_fi,
-)
+from .engine.failure_criteria import hashin_fi, hashin_fi_plies, von_mises_plane_stress_fi
 from .engine.geometry import MaterialAssignment, SectionDefinition, SubcomponentGeometry
 from .engine.interlaminar_recovery import (
     build_interlaminar_operators,
-    delamination_fi,
     interlaminar_stress_recovery,
     recover_interlaminar,
 )
@@ -44,7 +38,7 @@ from .engine.section_properties import print_section_summary
 from .engine.solver import MidsurfaceSectionSolver
 from .engine.implicit_section_geometry import GeometryConstraintSpec, SDFSectionSolver, build_section_from_constraints
 from .io.external_results import ExternalSectionResultSolver, section_result_from_mapping
-from .io.yaml_loader import load_section_from_yaml
+from .io.section_loader import load_section_from_spec
 
 
 def solve_section(section: SectionDefinition) -> SectionSolveResult:
@@ -87,9 +81,8 @@ __all__ = [
     "plane_stress_Q_isotropic",
     "tsai_wu_fi",
     "tsai_wu_polynomial",
-    "tsai_wu_strength_tensors",
-    "tsai_wu_fi_batch",
-    "tsai_wu_fi_plies",
+    "hashin_fi",
+    "hashin_fi_plies",
     "von_mises_plane_stress_fi",
     "MidsurfaceSectionSolver",
     "SDFSectionSolver",
@@ -100,7 +93,7 @@ __all__ = [
     "SectionProps",
     "solve_section",
     "section_props_from_solve",
-    "load_section_from_yaml",
+    "load_section_from_spec",
     "section_result_from_mapping",
     "ExternalSectionResultSolver",
     "print_section_summary",
@@ -109,7 +102,6 @@ __all__ = [
     "isotropic_membrane_stresses",
     "von_mises_plane_stress",
     "interlaminar_stress_recovery",
-    "delamination_fi",
     "recover_interlaminar",
     "build_interlaminar_operators",
     "assess_panel_buckling_section",

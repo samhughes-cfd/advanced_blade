@@ -3,7 +3,7 @@ Two-node line strip elements: composite (ABD) or isotropic membrane (C_iso).
 
 Laminate / stiffness is expressed in **beam–tangent** shell axes:
 local **1** = beam axis **x** (out of section), local **2** = midsurface tangent
-in the **y–z** plane. Ply angles in :class:`~section_model.engine.laminate.LaminateDefinition`
+in the **y–z** plane. Ply angles in :class:`~blade_precompute.section_properties.engine.laminate.LaminateDefinition`
 are measured from local **1** (spanwise).
 """
 
@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 
 from .geometry import SubcomponentGeometry
 from .laminate import LaminateDefinition
-from .materials import IsotropicMaterial, plane_stress_Q_isotropic
+from .materials import IsotropicMaterial, build_isotropic_ABD, plane_stress_Q_isotropic
 from .mesh import LineMesh
 
 
@@ -120,9 +120,11 @@ def build_strip_fe_data(section: SectionDefinition, mesh: LineMesh) -> StripElem
         else:
             mat = subc.material
             assert isinstance(mat, IsotropicMaterial)
+            t_iso = float(max(subc.thickness, 1e-12))
             C_iso[e] = plane_stress_Q_isotropic(mat.E, mat.nu)
+            ABD[e] = build_isotropic_ABD(mat.E, mat.nu, t_iso)
             G[e] = _G_section_isotropic(mat)
-            t_mem[e] = float(max(subc.thickness, 1e-12))
+            t_mem[e] = t_iso
             sig_allow[e] = float(mat.sigma_allow)
             E_ax[e] = float(mat.E)
 

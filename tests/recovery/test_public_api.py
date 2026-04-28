@@ -25,7 +25,6 @@ def _tiny_blade(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
     r_ref[:, 1] = 0.01 * (z / z[-1]) ** 2
     kappa0 = np.zeros((n_s, 3), dtype=np.float64)
     kappa0[:, 1] = 0.002
-    tau0 = np.zeros_like(z)
     chord = np.full_like(z, 1.5)
     twist = np.zeros_like(z)
     web_positions = np.array([-0.3, 0.3], dtype=np.float64)
@@ -53,7 +52,6 @@ def _tiny_blade(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
         z_stations=z,
         r_ref=r_ref,
         kappa0=kappa0,
-        tau0=tau0,
         chord=chord,
         twist=twist,
         airfoil_profiles=[],

@@ -15,7 +15,7 @@ from .types import ShellPanelResultants
 
 
 def _stress_model_root() -> Path:
-    return Path(__file__).resolve().parents[2] / "section_stress_model"
+    return Path(__file__).resolve().parents[3] / "examples" / "section_stress_model"
 
 
 def _ensure_stress_imports() -> None:

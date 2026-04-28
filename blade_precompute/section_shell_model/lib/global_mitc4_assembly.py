@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numbers
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence, Union
 
@@ -22,10 +23,111 @@ _W = 2
 _BETA_S = 3
 _BETA_X = 4
 
+# Cap-only: minimum polyline deflection (rad) at an interior vertex to count as
+# a "kink" and force an MITC4 node at the corresponding ``s`` value.
+_PANEL_MESH_KINK_DEFLECTION_RAD: float = float(np.deg2rad(0.35))
 
-def _panel_mesh(s_panel: np.ndarray, n_elements: int) -> tuple[np.ndarray, list[list[int]]]:
+# Cap-only: if ``s_panel[j]`` is farther than this fraction of one nominal
+# linspace step from the nearest ``s_lin`` sample, add it to the discretisation
+# (picks up smooth junctions that are not kinks).
+_PANEL_MESH_S_FAR_ALPHA: float = 0.3
+
+
+def _panel_mesh_kind(panel_label: str) -> str:
+    if ":" in panel_label:
+        return str(panel_label.split(":", 1)[0])
+    return ""
+
+
+def _merge_sorted_s_unique_eps(s_sorted: np.ndarray, *, eps: float) -> np.ndarray:
+    """Sort, then drop values within ``eps`` of the previous kept sample."""
+    s_sorted = np.asarray(s_sorted, dtype=float).ravel()
+    if s_sorted.size == 0:
+        return s_sorted
+    s_sorted = np.sort(s_sorted)
+    out: list[float] = [float(s_sorted[0])]
+    for x in s_sorted[1:]:
+        xf = float(x)
+        if xf - out[-1] > eps:
+            out.append(xf)
+    return np.asarray(out, dtype=float)
+
+
+def _cap_s_extra_kink_and_far(
+    s_panel: np.ndarray,
+    s_lin: np.ndarray,
+    nodes_yz: np.ndarray,
+    *,
+    span: float,
+    n_el: int,
+    deflection_min_rad: float = _PANEL_MESH_KINK_DEFLECTION_RAD,
+    far_alpha: float = _PANEL_MESH_S_FAR_ALPHA,
+) -> list[float]:
+    """Pick extra ``s`` abscissae for cap strips: kinks + far-from-linspace samples."""
+    s_panel = np.asarray(s_panel, dtype=float).ravel()
+    nodes = np.asarray(nodes_yz, dtype=float)
+    n = int(s_panel.size)
+    extra: set[float] = set()
+    nominal = span / max(float(n_el), 1.0)
+    if nominal <= 0.0:
+        nominal = float(span) if float(span) > 0.0 else 1.0
+    far_tau = float(far_alpha) * nominal
+
+    if nodes.shape[0] >= 3 and n == nodes.shape[0]:
+        for j in range(1, n - 1):
+            t1 = nodes[j] - nodes[j - 1]
+            t2 = nodes[j + 1] - nodes[j]
+            n1 = float(np.linalg.norm(t1))
+            n2 = float(np.linalg.norm(t2))
+            if n1 < 1e-30 or n2 < 1e-30:
+                continue
+            c = float(np.dot(t1, t2) / (n1 * n2))
+            c = float(np.clip(c, -1.0, 1.0))
+            turn = float(np.arccos(c))
+            deflection = float(np.pi) - turn
+            if deflection > float(deflection_min_rad):
+                extra.add(float(s_panel[j]))
+
+    for j in range(n):
+        sj = float(s_panel[j])
+        dmin = float(np.min(np.abs(s_lin - sj)))
+        if dmin > far_tau:
+            extra.add(sj)
+
+    return [float(s) for s in extra]
+
+
+def _panel_mesh(
+    s_panel: np.ndarray,
+    n_elements: int,
+    *,
+    panel_label: str = "",
+    nodes_yz: np.ndarray | None = None,
+) -> tuple[np.ndarray, list[list[int]]]:
+    """Equi-arc (uniform in cumulative ``s``) MITC4 nodes, with selective cap-only knots.
+
+    ``s`` is arc length along the piecewise linear ``Panel`` midline, so
+    ``linspace(s_min, s_max)`` is equi-spaced in physical length. **Web** and
+    **skin** use that grid only. **Cap** panels include all cap polyline knots
+    so Class-A/B/C cap node locations (skin-coincident ends, web intersections,
+    and skin-ray-resampled interiors) are represented in the MITC4 mesh.
+    """
+    s_panel = np.asarray(s_panel, dtype=float).ravel()
     s_min, s_max = float(s_panel.min()), float(s_panel.max())
-    s_nodes = np.linspace(s_min, s_max, n_elements + 1)
+    n_el = max(1, int(n_elements))
+    s_lin = np.linspace(s_min, s_max, n_el + 1)
+    span = s_max - s_min
+    eps = max(1e-15 * (span if span > 0.0 else 1.0), 1e-18)
+    kind = _panel_mesh_kind(panel_label)
+
+    if kind in ("web", "skin", ""):
+        s_nodes = s_lin
+    elif kind == "cap":
+        # Cap nodes must represent Class A/B/C shell-knot locations exactly.
+        s_nodes = _merge_sorted_s_unique_eps(s_panel, eps=eps)
+    else:
+        s_nodes = s_lin
+
     n = len(s_nodes)
     elems: list[list[int]] = []
     for i in range(n - 1):
@@ -129,13 +231,53 @@ Flexible element-count specification for :func:`solve_global_coupled_mitc4`.
 
 def _resolve_n_elements(spec: NElements, pi: int, default: int = 10) -> int:
     """Return the element count for panel ``pi`` given a flexible spec."""
-    if isinstance(spec, int):
-        return spec
+    if isinstance(spec, numbers.Integral):
+        return int(spec)
     if isinstance(spec, Mapping):
         return int(spec.get(pi, default))
-    if isinstance(spec, Sequence):
+    if isinstance(spec, Sequence) and not isinstance(spec, (str, bytes)):
         return int(spec[pi]) if pi < len(spec) else default
     raise TypeError(f"n_elements_per_panel must be int, Mapping, or Sequence; got {type(spec)}")
+
+
+def _effective_n_elements_spec(
+    panels: list[Any],
+    n_elements_per_panel: NElements,
+    target_element_length_m: float | None,
+) -> NElements:
+    """Combine uniform / per-panel counts with optional distance-based sizing.
+
+    When ``target_element_length_m`` is a positive finite value, per-panel
+    counts are ``max(1, round(arc_length_m / target))`` using each panel's
+    cumulative ``p.s`` span, **unless** an explicit per-panel spec is already
+    provided (non-``int`` :class:`NElements`, or an ``int`` other than the
+    default ``10``), in which case that specification wins.
+    """
+    if (
+        target_element_length_m is None
+        or not np.isfinite(target_element_length_m)
+        or float(target_element_length_m) <= 0.0
+    ):
+        return n_elements_per_panel
+    if isinstance(n_elements_per_panel, numbers.Integral) and int(n_elements_per_panel) != 10:
+        return n_elements_per_panel
+    if isinstance(n_elements_per_panel, Mapping):
+        return n_elements_per_panel
+    if isinstance(n_elements_per_panel, Sequence) and not isinstance(
+        n_elements_per_panel, (str, bytes)
+    ):
+        return n_elements_per_panel
+
+    tgt = float(target_element_length_m)
+    mapping: dict[int, int] = {}
+    for pi, p in enumerate(panels):
+        s_p = np.asarray(getattr(p, "s", None), dtype=float)
+        if s_p.size < 2:
+            mapping[pi] = 1
+        else:
+            arc = float(s_p[-1] - s_p[0])
+            mapping[pi] = max(1, int(round(arc / tgt)))
+    return mapping
 
 
 # Type alias for the unified multi-master constraint format.
@@ -344,23 +486,101 @@ class _PanelGlobalMap:
     panel_index: int
 
 
+@dataclass
+class GlobalNodeMeta:
+    """Per-node geometric metadata for K7 cross-section stiffness extraction.
+
+    All arrays are indexed by global node ID (0 … n_nodes-1).  Nodes that are
+    MPC virtual cluster reference nodes (``transformed_basis`` mode) have NaN
+    in ``yz``, ``tangent_yz``, and ``arc_length_s``.
+    """
+    n_nodes: int                  # total global node count
+    yz: np.ndarray                # (n_nodes, 2) — (y, z) cross-section coords [m]
+    is_top: np.ndarray            # (n_nodes,) bool — top layer (x=L_x) vs bottom (x=0)
+    tangent_yz: np.ndarray        # (n_nodes, 2) — (ty, tz) unit tangent along contour
+    arc_length_s: np.ndarray      # (n_nodes,) — contour arc-length s [m]
+
+
+def _collect_global_node_meta(
+    panel_maps: list[_PanelGlobalMap],
+    panels: list[Any],
+    n_total_nodes: int,
+) -> GlobalNodeMeta:
+    """Build per-node geometric metadata from the assembled panel maps."""
+    yz = np.full((n_total_nodes, 2), np.nan)
+    is_top = np.zeros(n_total_nodes, dtype=bool)
+    tangent_yz = np.full((n_total_nodes, 2), np.nan)
+    arc_s = np.full(n_total_nodes, np.nan)
+
+    for pi, pm in enumerate(panel_maps):
+        if len(pm.s_nodes) == 0:
+            continue
+        p = panels[pi]
+        nodes_yz_p = np.asarray(getattr(p, "nodes"), dtype=float)
+        s_panel = np.asarray(p.s, dtype=float)
+        s_nodes = pm.s_nodes
+        n = len(s_nodes)
+
+        y_m = np.interp(s_nodes, s_panel, nodes_yz_p[:, 0])
+        z_m = np.interp(s_nodes, s_panel, nodes_yz_p[:, 1])
+
+        if len(nodes_yz_p) >= 2:
+            ty_p = np.gradient(nodes_yz_p[:, 0], s_panel)
+            tz_p = np.gradient(nodes_yz_p[:, 1], s_panel)
+            ty_m = np.interp(s_nodes, s_panel, ty_p)
+            tz_m = np.interp(s_nodes, s_panel, tz_p)
+            nrm = np.maximum(np.hypot(ty_m, tz_m), 1e-30)
+            ty_m = ty_m / nrm
+            tz_m = tz_m / nrm
+        else:
+            ty_m = np.zeros(n)
+            tz_m = np.ones(n)
+
+        for li in range(2 * n):
+            si = li if li < n else li - n
+            gn = pm.global_nodes[li]
+            if gn < 0:
+                continue
+            if np.isnan(yz[gn, 0]):
+                yz[gn] = [y_m[si], z_m[si]]
+                tangent_yz[gn] = [ty_m[si], tz_m[si]]
+                arc_s[gn] = s_nodes[si]
+            is_top[gn] = (li >= n)
+
+    return GlobalNodeMeta(n_nodes=n_total_nodes, yz=yz, is_top=is_top, tangent_yz=tangent_yz, arc_length_s=arc_s)
+
+
 def solve_global_coupled_mitc4(
     panels: list[Any],
     Nx_panels: list[np.ndarray],
     Nxy_panels: list[np.ndarray],
     *,
     n_elements_per_panel: NElements = 10,
+    target_element_length_m: float | None = None,
     endpoint_tol: float = 1e-6,
-    bc_mode: str = "legacy",
+    bc_mode: str = "full_clamp",
     interface_constraint_mode: str = "shared",
     enforce_traction_balance_at_cusp: bool = False,
     traction_penalty_alpha: float = 1e-2,
-) -> tuple[list[list[ShellPanelResultants]], list[dict]]:
+    return_assembly_data: bool = False,
+) -> tuple:
     """
     Assemble and solve all panel strips in one global system with shared endpoint nodes.
+
+    Parameters
+    ----------
+    target_element_length_m
+        When set to a positive finite value (and ``n_elements_per_panel`` is the
+        default uniform ``10``), element counts are derived from each panel's
+        polyline arc length in ``p.s``.  Explicit per-panel ``Mapping`` /
+        ``Sequence`` counts, or a uniform integer other than ``10``, override
+        this rule.
     """
     panel_maps: list[_PanelGlobalMap] = []
     endpoints: list[tuple[int, str, np.ndarray]] = []
+    n_elem_spec = _effective_n_elements_spec(
+        panels, n_elements_per_panel, target_element_length_m
+    )
 
     # Build local strip meshes per panel.
     for pi, p in enumerate(panels):
@@ -368,11 +588,16 @@ def solve_global_coupled_mitc4(
         if len(s_panel) < 2:
             panel_maps.append(_PanelGlobalMap(np.array([]), [], [], str(getattr(p, "label", f"panel_{pi}")), pi))
             continue
-        s_nodes, elems = _panel_mesh(s_panel, _resolve_n_elements(n_elements_per_panel, pi))
+        nodes_yz = np.asarray(getattr(p, "nodes"), dtype=float)
+        s_nodes, elems = _panel_mesh(
+            s_panel,
+            _resolve_n_elements(n_elem_spec, pi),
+            panel_label=str(getattr(p, "label", "") or ""),
+            nodes_yz=nodes_yz,
+        )
         n_local_nodes = 2 * len(s_nodes)
         global_nodes = [-1] * n_local_nodes
         panel_maps.append(_PanelGlobalMap(s_nodes, elems, global_nodes, str(getattr(p, "label", f"panel_{pi}")), pi))
-        nodes_yz = np.asarray(getattr(p, "nodes"), dtype=float)
         ep = _panel_endpoints(nodes_yz)
         endpoints.append((pi, "start", ep["start"]))
         endpoints.append((pi, "end", ep["end"]))
@@ -471,7 +696,9 @@ def solve_global_coupled_mitc4(
         p = panels[pi]
         nodes_yz = np.asarray(getattr(p, "nodes"), dtype=float)
         # Build ABD per panel from laminate
-        from lib.laminate_clpt import abd_stack  # type: ignore[import-untyped]
+        from examples.section_stress_model.lib.laminate_clpt import (  # type: ignore[import-untyped]
+            abd_stack,
+        )
         A_mat, B_mat, D_mat = abd_stack(p.lam.build_plies())
         ABD = np.block([[A_mat, B_mat], [B_mat, D_mat]])
         thickness = float(p.lam.t)
@@ -593,7 +820,7 @@ def solve_global_coupled_mitc4(
             if len(pm.s_nodes) == 0:
                 continue
             n = len(pm.s_nodes)
-            if bc_mode == "legacy":
+            if bc_mode == "full_clamp":
                 support_nodes = (0, n - 1, n, 2 * n - 1)
             else:
                 support_nodes = (0, n - 1)
@@ -625,7 +852,7 @@ def solve_global_coupled_mitc4(
             if len(pm.s_nodes) == 0:
                 continue
             n = len(pm.s_nodes)
-            if bc_mode == "legacy":
+            if bc_mode == "full_clamp":
                 support_nodes = (0, n - 1, n, 2 * n - 1)
             else:
                 support_nodes = (0, n - 1)
@@ -717,7 +944,9 @@ def solve_global_coupled_mitc4(
         # Adds (k/2)*(Tx_i + Tx_j)^2 to the energy functional, enforcing Newton III
         # at sharp cusp junctions (e.g., LE) where the MPC alone cannot guarantee it.
         if enforce_traction_balance_at_cusp and use_cluster_basis:
-            from lib.laminate_clpt import abd_stack  # type: ignore[import-untyped]
+            from examples.section_stress_model.lib.laminate_clpt import (  # type: ignore[import-untyped]
+                abd_stack,
+            )
             k_diag_max = float(K_rr.diagonal().max()) if K_rr.shape[0] > 0 else 1.0
             k_pen = traction_penalty_alpha * k_diag_max
             for cid, clu in enumerate(clusters):
@@ -774,7 +1003,9 @@ def solve_global_coupled_mitc4(
             all_panel_diag.append({})
             continue
         p = panels[pi]
-        from lib.laminate_clpt import abd_stack  # type: ignore[import-untyped]
+        from examples.section_stress_model.lib.laminate_clpt import (  # type: ignore[import-untyped]
+            abd_stack,
+        )
         A_mat, B_mat, D_mat = abd_stack(p.lam.build_plies())
         ABD = np.block([[A_mat, B_mat], [B_mat, D_mat]])
         panel_label = pm.panel_label
@@ -964,4 +1195,7 @@ def solve_global_coupled_mitc4(
                 "solver": "global_coupled",
             }
         )
+    if return_assembly_data:
+        node_meta = _collect_global_node_meta(panel_maps, panels, next_global_node)
+        return all_panel_results, all_panel_diag, K_global, T, node_meta
     return all_panel_results, all_panel_diag

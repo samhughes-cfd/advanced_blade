@@ -37,7 +37,7 @@ def main() -> None:
     import numpy as np
 
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
-    from blade_precompute.section_shell_model.lib.example_plots import (
+    from blade_precompute.section_shell_model.vis import (
         save_clpt_fi_on_section_geometry,
         save_clpt_ply_figure,
         save_mitc4_fi_figure,

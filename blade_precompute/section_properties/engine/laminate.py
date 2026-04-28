@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -155,6 +155,111 @@ class LaminateDefinition:
             shear_lag_correction=self.shear_lag_correction,
             _abd_override=None,
         )
+
+    @classmethod
+    def from_orientation_mix(
+        cls,
+        mix: "Any",
+        base_ply_ud: "OrthotropicPly",
+        base_ply_biax: "OrthotropicPly",
+        t_total: float,
+        base_ply_90: "OrthotropicPly | None" = None,
+        *,
+        shear_lag_correction: bool = True,
+    ) -> "LaminateDefinition":
+        """Build a symmetric balanced laminate from an :class:`OrientationMix`.
+
+        Full stack layout (outer → inner → outer)::
+
+            [0°]×n_0  [+45°]×n_biax  [-45°]×n_biax  [90°]×n_90
+            | mirror |
+            [90°]×n_90  [-45°]×n_biax  [+45°]×n_biax  [0°]×n_0
+
+        Symmetric  → B matrix = 0 by construction.
+        Balanced   → A16 = A26 = 0 by construction (±45 always paired).
+
+        ``t_total`` is distributed uniformly across ``2 * N_half`` plies; the
+        per-ply thickness differs between UD, biax, and 90° materials (L.10).
+        When the mix contains angle groups with different base ``t_ply``, the uniform
+        scaling factor ``s = t_total / (2 * t_half_0)`` is applied to all plies so that
+        the resulting laminate has total thickness exactly ``t_total``.
+
+        Parameters
+        ----------
+        mix
+            :class:`~blade_precompute.section_optimisation.engine.orientation_mix.OrientationMix`.
+        base_ply_ud
+            0° UD ply template (``OrthotropicPly``); its ``t_ply`` sets the relative weight.
+        base_ply_biax
+            ±45° biax ply template; ``t_ply`` sets relative weight per pair.
+        t_total
+            Target total laminate thickness [m].
+        base_ply_90
+            90° ply template; uses ``base_ply_biax`` when None.
+        shear_lag_correction
+            Forwarded to :class:`LaminateDefinition`.
+        """
+        from .materials import OrthotropicPly as _OPly
+
+        ply_90 = base_ply_90 if base_ply_90 is not None else base_ply_biax
+
+        n_0: int = int(mix.n_0)
+        n_biax: int = int(mix.n_biax_pairs)
+        n_90: int = int(mix.n_90)
+        n_half = n_0 + 2 * n_biax + n_90
+        if n_half <= 0:
+            raise ValueError("OrientationMix has zero plies; cannot build laminate.")
+
+        # Reference half-stack thickness (unscaled)
+        t_half_0 = (
+            n_0 * float(base_ply_ud.t_ply)
+            + 2 * n_biax * float(base_ply_biax.t_ply)
+            + n_90 * float(ply_90.t_ply)
+        )
+        if t_half_0 <= 0.0:
+            raise ValueError("All base plies have zero t_ply; cannot scale laminate.")
+
+        # Scale factor so total thickness = t_total exactly
+        s = float(t_total) / (2.0 * t_half_0)
+
+        def _scale(ply: "OrthotropicPly", t_new: float) -> "OrthotropicPly":
+            return _OPly(
+                name=ply.name,
+                E1=ply.E1,
+                E2=ply.E2,
+                G12=ply.G12,
+                nu12=ply.nu12,
+                rho=ply.rho,
+                t_ply=t_new,
+                Xt=ply.Xt,
+                Xc=ply.Xc,
+                Yt=ply.Yt,
+                Yc=ply.Yc,
+                S12=ply.S12,
+                Zt=getattr(ply, "Zt", 0.0),
+                S13=getattr(ply, "S13", 0.0),
+                S23=getattr(ply, "S23", 0.0),
+            )
+
+        ud = _scale(base_ply_ud, float(base_ply_ud.t_ply) * s)
+        bx = _scale(base_ply_biax, float(base_ply_biax.t_ply) * s)
+        p90 = _scale(ply_90, float(ply_90.t_ply) * s)
+
+        # Build the outer half-stack (top to midplane)
+        half: List[Tuple[OrthotropicPly, float]] = []
+        for _ in range(n_0):
+            half.append((ud, 0.0))
+        for _ in range(n_biax):
+            half.append((bx, 45.0))
+            half.append((bx, -45.0))
+        for _ in range(n_90):
+            half.append((p90, 90.0))
+
+        # Mirror: inner half-stack (midplane to bottom); reverse angle order, same angles
+        mirror = list(reversed(half))
+
+        full_plies = half + mirror
+        return cls(plies=full_plies, shear_lag_correction=shear_lag_correction)
 
     def apply_shear_lag(self, b_cap: float, t_skin: float) -> LaminateDefinition:
         """

@@ -7,6 +7,8 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
+from .failure_criteria import von_mises_plane_stress_fi
+
 
 def isotropic_membrane_stresses(
     sub_resultants: NDArray[np.float64],
@@ -36,19 +38,6 @@ def von_mises_plane_stress(
     sigma: NDArray[np.float64],
     sigma_allow: NDArray[np.float64],
 ) -> NDArray[np.float64]:
-    r"""
-    Plane-stress von Mises equivalent vs allowable.
-
-    .. math::
-
-        \sigma_{VM} = \sqrt{\sigma_{11}^2 - \sigma_{11}\sigma_{22} + \sigma_{22}^2
-        + 3\tau_{12}^2}
-
-    ``FI_VM = σ_VM / σ_allow``.
-    """
-    s11, s22, s12 = sigma[..., 0], sigma[..., 1], sigma[..., 2]
-    svm = np.sqrt(np.maximum(s11**2 - s11 * s22 + s22**2 + 3.0 * s12**2, 0.0))
+    """Compatibility wrapper over `failure_criteria.von_mises_plane_stress_fi`."""
     allow = np.maximum(np.asarray(sigma_allow, dtype=np.float64), 1e-18)
-    tail = (allow.shape[0],) if svm.ndim > 0 else ()
-    shape = (1,) * max(svm.ndim - 1, 0) + tail
-    return svm / allow.reshape(shape)
+    return von_mises_plane_stress_fi(np.asarray(sigma, dtype=np.float64), allow)

@@ -12,7 +12,7 @@ import numpy as np
 
 
 def _stress_model_root() -> Path:
-    return Path(__file__).resolve().parents[2] / "section_stress_model"
+    return Path(__file__).resolve().parents[3] / "examples" / "section_stress_model"
 
 
 def _ensure_stress_path() -> None:
@@ -406,6 +406,65 @@ def save_mitc4_fi_figure(
     return outfile
 
 
+def save_multi_panel_hashin_montage(
+    outfile: Path | str,
+    all_panel_fi: list,
+    panel_labels: list[str] | None = None,
+    *,
+    dpi: int = 150,
+) -> Path:
+    """One mini heatmap subplot per panel (Hashin FI along contour)."""
+    import math
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+
+    outfile = Path(outfile)
+    outfile.parent.mkdir(parents=True, exist_ok=True)
+    n = len(all_panel_fi)
+    if n == 0:
+        fig, ax = plt.subplots(figsize=(4, 2))
+        ax.text(0.5, 0.5, "no panel FI", ha="center", va="center", transform=ax.transAxes)
+        fig.savefig(outfile, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)
+        return outfile
+    ncols = int(math.ceil(math.sqrt(float(n))))
+    nrows = int(math.ceil(n / float(ncols)))
+    plt.style.use("dark_background")
+    fig, axes = plt.subplots(nrows, ncols, figsize=(2.6 * ncols, 2.2 * nrows), facecolor="#0f1117")
+    if nrows * ncols == 1:
+        ax_flat = [axes]
+    else:
+        ax_flat = axes.ravel()
+    vals: list[float] = []
+    for fi in all_panel_fi:
+        a = np.asarray(fi, dtype=np.float64).ravel()
+        if a.size:
+            vals.append(float(np.nanmax(a)))
+    mx = max(1.0, max(vals) if vals else 0.0)
+    norm = mcolors.Normalize(vmin=0.0, vmax=mx)
+    for k in range(nrows * ncols):
+        ax = ax_flat[k]
+        ax.set_facecolor("#0f1117")
+        if k >= n:
+            ax.axis("off")
+            continue
+        fi = np.asarray(all_panel_fi[k], dtype=np.float64).reshape(1, -1)
+        ax.imshow(fi, aspect="auto", norm=norm, cmap="plasma", interpolation="nearest")
+        lab = (panel_labels[k] if panel_labels and k < len(panel_labels) else f"panel_{k}")[:28]
+        ax.set_title(lab, fontsize=7, color="#e0e0e0")
+        ax.set_xticks([])
+        ax.set_yticks([])
+    fig.suptitle("Per-panel Hashin FI (montage)", color="#e0e0e0", fontsize=10)
+    plt.tight_layout()
+    fig.savefig(outfile, dpi=dpi, bbox_inches="tight", facecolor="#0f1117")
+    plt.close(fig)
+    return outfile
+
+
 def save_clpt_fi_on_section_geometry(
     outfile: Path | str,
     airfoil: np.ndarray,
@@ -644,6 +703,186 @@ def save_mitc4_resultants_figure(
         ax.tick_params(colors="#aaaaaa", labelsize=7)
         ax.grid(True, color="#2a2a3a", lw=0.4, alpha=0.5)
 
+    plt.tight_layout()
+    fig.savefig(outfile, dpi=dpi, bbox_inches="tight", facecolor="#0f1117")
+    plt.close(fig)
+    return outfile
+
+
+def save_loads_provenance_png(
+    outfile: Path | str,
+    *,
+    N: float,
+    Vy: float,
+    Vz: float,
+    My: float,
+    Mz: float,
+    T: float,
+    station_tag: str = "",
+    rz_m: float | None = None,
+    n_elements_per_panel: int | None = None,
+    dpi: int = 150,
+) -> Path:
+    """Single-panel text summary of section resultants (for final-pass provenance)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    outfile = Path(outfile)
+    outfile.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8.0, 2.2), facecolor="#0f1117")
+    ax.axis("off")
+    lines = [
+        f"station_tag={station_tag!r}",
+        f"N={N:.6g}  Vy={Vy:.6g}  Vz={Vz:.6g}  My={My:.6g}  Mz={Mz:.6g}  T={T:.6g}",
+    ]
+    if rz_m is not None:
+        lines.append(f"r_z_m={float(rz_m):.6g} m")
+    if n_elements_per_panel is not None:
+        lines.append(f"n_elements_per_panel={int(n_elements_per_panel)}")
+    ax.text(
+        0.02,
+        0.95,
+        "\n".join(lines),
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=10,
+        family="monospace",
+        color="#e0e0e0",
+    )
+    fig.savefig(outfile, dpi=dpi, bbox_inches="tight", facecolor="#0f1117")
+    plt.close(fig)
+    return outfile
+
+
+def save_mitc4_v2_section_mesh_figure(
+    outfile: Path | str,
+    mesh: Any,
+    *,
+    dpi: int = 150,
+    caption_lines: list[str] | None = None,
+) -> Path:
+    """Plot MITC4 v2 section mesh (panel quads in ``y,z``) from :class:`Mitc4SectionMesh`."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    outfile = Path(outfile)
+    outfile.parent.mkdir(parents=True, exist_ok=True)
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(9.0, 7.0), facecolor="#0f1117")
+    ax.set_facecolor("#0f1117")
+    pmeshes = getattr(mesh, "panel_meshes", None) or []
+    for pm in pmeshes:
+        yz = np.asarray(getattr(pm, "yz_nodes", []), dtype=np.float64)
+        if yz.ndim != 2 or yz.shape[1] < 2:
+            continue
+        for el in getattr(pm, "elements", []) or []:
+            if len(el) < 3:
+                continue
+            loop = list(el) + [el[0]]
+            ii = [int(i) for i in loop if 0 <= int(i) < yz.shape[0]]
+            if len(ii) < 3:
+                continue
+            ax.plot(yz[ii, 0], yz[ii, 1], color="#5dade2", lw=0.9, alpha=0.85)
+        ax.scatter(yz[:, 0], yz[:, 1], s=6, c="#ecf0f1", alpha=0.35, zorder=3)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel("y [m]", color="#e0e0e0", fontsize=9)
+    ax.set_ylabel("z [m]", color="#e0e0e0", fontsize=9)
+    ax.tick_params(colors="#aaaaaa", labelsize=8)
+    ax.grid(True, color="#2a2a3a", lw=0.3, alpha=0.4)
+    ttl = "MITC4 v2 — section mesh (midline strip quads)"
+    if caption_lines:
+        ttl = ttl + "\n" + " | ".join(caption_lines[:3])
+    ax.set_title(ttl, color="#e0e0e0", fontsize=10)
+    if caption_lines and len(caption_lines) > 3:
+        fig.text(0.02, 0.02, "\n".join(caption_lines[3:]), fontsize=7, color="#aaaaaa", va="bottom")
+    plt.tight_layout()
+    fig.savefig(outfile, dpi=dpi, bbox_inches="tight", facecolor="#0f1117")
+    plt.close(fig)
+    return outfile
+
+
+def save_mitc4_v2_dashboard_figure(
+    outfile: Path | str,
+    mesh: Any,
+    *,
+    N: float,
+    Vy: float,
+    Vz: float,
+    My: float,
+    Mz: float,
+    T: float,
+    station_tag: str,
+    rz_m: float,
+    n_elements_per_panel: int,
+    dpi: int = 150,
+) -> Path:
+    """Two-panel v2 dashboard: mesh (left) + JSON-style summary (right)."""
+    import json as _json
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    outfile = Path(outfile)
+    outfile.parent.mkdir(parents=True, exist_ok=True)
+    plt.style.use("dark_background")
+    fig, (ax0, ax1) = plt.subplots(
+        1, 2, figsize=(12.0, 6.0), facecolor="#0f1117", gridspec_kw={"width_ratios": [1.15, 1.0]}
+    )
+    ax0.set_facecolor("#0f1117")
+    ax1.set_facecolor("#0f1117")
+    pmeshes = getattr(mesh, "panel_meshes", None) or []
+    for pm in pmeshes:
+        yz = np.asarray(getattr(pm, "yz_nodes", []), dtype=np.float64)
+        if yz.ndim != 2 or yz.shape[1] < 2:
+            continue
+        for el in getattr(pm, "elements", []) or []:
+            if len(el) < 3:
+                continue
+            loop = list(el) + [el[0]]
+            ii = [int(i) for i in loop if 0 <= int(i) < yz.shape[0]]
+            if len(ii) < 3:
+                continue
+            ax0.plot(yz[ii, 0], yz[ii, 1], color="#5dade2", lw=0.9, alpha=0.9)
+    ax0.set_aspect("equal", adjustable="box")
+    ax0.set_title("Mesh", color="#e0e0e0", fontsize=10)
+    ax0.set_xlabel("y [m]", color="#aaaaaa", fontsize=8)
+    ax0.set_ylabel("z [m]", color="#aaaaaa", fontsize=8)
+    summ: dict[str, Any] = {}
+    if hasattr(mesh, "summary"):
+        try:
+            summ = mesh.summary()
+        except Exception:
+            summ = {}
+    txt = _json.dumps(
+        {
+            "station_tag": station_tag,
+            "rz_m": float(rz_m),
+            "resultants": {"N": N, "Vy": Vy, "Vz": Vz, "My": My, "Mz": Mz, "T": T},
+            "n_elements_per_panel": int(n_elements_per_panel),
+            "mesh_summary": summ,
+        },
+        indent=2,
+    )
+    ax1.axis("off")
+    ax1.text(
+        0.02,
+        0.98,
+        txt,
+        transform=ax1.transAxes,
+        va="top",
+        ha="left",
+        fontsize=7,
+        family="monospace",
+        color="#e0e0e0",
+    )
+    fig.suptitle(f"MITC4 v2 station dashboard — {station_tag}", color="#e0e0e0", fontsize=11)
     plt.tight_layout()
     fig.savefig(outfile, dpi=dpi, bbox_inches="tight", facecolor="#0f1117")
     plt.close(fig)

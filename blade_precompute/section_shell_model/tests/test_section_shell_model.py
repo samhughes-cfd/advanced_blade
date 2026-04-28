@@ -109,6 +109,36 @@ def test_hashin_fi_golden_pure_shear_envelope():
     assert abs(fi - 0.25) < 1e-12
 
 
+def test_six_series_airfoil_converted_for_multicell_run_section() -> None:
+    """Spanwise six-series polygon must be resampled to [upper; lower] LE→TE before thin-wall."""
+    from blade_precompute.section_geometry.geometry.naca_parametric import (  # noqa: E402
+        airfoil_vertices_from_spanwise,
+    )
+    from blade_precompute.section_shell_model.job_outputs import (  # noqa: E402
+        airfoil_polygon_to_multicell_airfoil,
+        build_airfoil_for_station,
+    )
+    from lib.sectorial_warping import open_outline_from_airfoil  # type: ignore[import-untyped]
+    from multi_cell_blade_section import polygon_area_2d, run_section  # type: ignore[import-untyped]
+
+    raw = airfoil_vertices_from_spanwise(6, 63.0, 4.0, 15.0, 140, 1.0, closed_te=True)
+    half_bad = raw.shape[0] // 2
+    assert not np.allclose(raw[:half_bad, 0], raw[half_bad:, 0])
+    mc = airfoil_polygon_to_multicell_airfoil(raw, n_each=48)
+    assert mc.shape == (96, 2)
+    n = mc.shape[0] // 2
+    assert np.allclose(mc[:n, 0], mc[n:, 0])
+    assert np.all(mc[:n, 1] >= mc[n:, 1] - 1e-8)
+    loop = np.vstack([open_outline_from_airfoil(mc), open_outline_from_airfoil(mc)[:1]])
+    assert abs(polygon_area_2d(loop)) > 1e-6
+    out = run_section(mc, [0.35, 0.65], N=1.0, Vy=0.0, Vz=0.0, My=0.0, Mz=0.0, T=0.0)
+    assert len(out[0]) > 0
+
+    via_station = build_airfoil_for_station(63.0, 4.0, 15.0, chord_m=1.655, naca_series=6, n_points=40)
+    assert via_station.shape == (80, 2)
+    run_section(via_station, [0.4], N=0.0, Vy=1.0, Vz=0.0, My=0.0, Mz=0.0, T=0.0)
+
+
 def test_clpt_fi_on_section_geometry_writes_png(tmp_path) -> None:
     """MVP geometry map: Hashin FI per MITC4 element on section (y,z) writes a PNG file."""
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
@@ -116,7 +146,7 @@ def test_clpt_fi_on_section_geometry_writes_png(tmp_path) -> None:
         default_skin_strengths_pa,
         sweep_panel_clpt_fi,
     )
-    from blade_precompute.section_shell_model.lib.example_plots import (  # noqa: E402
+    from blade_precompute.section_shell_model.vis import (  # noqa: E402
         save_clpt_fi_on_section_geometry,
     )
     from blade_precompute.section_shell_model.lib.recovery_adapter import (  # noqa: E402
@@ -2006,14 +2036,14 @@ def test_traction_penalty_reduces_cusp_residual():
         n_elements_per_panel=4,
         interface_constraint_mode="transformed_basis",
         enforce_traction_balance_at_cusp=False,
-    )
+    )[:2]
     res_pen, diag_pen = solve_global_coupled_mitc4(
         panels_syn, Nx_syn, Nxy_syn,
         n_elements_per_panel=4,
         interface_constraint_mode="transformed_basis",
         enforce_traction_balance_at_cusp=True,
         traction_penalty_alpha=1e-1,
-    )
+    )[:2]
 
     def _cluster_tx(diag, pnls):
         from blade_precompute.section_shell_model.lib.recovery_adapter import check_cluster_equilibrium

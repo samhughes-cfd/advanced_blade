@@ -17,7 +17,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 from blade_precompute.section_properties.core.types import SectionSolveResult
-from blade_precompute.section_properties.engine.failure_criteria import tsai_wu_strength_tensors
 from blade_precompute.section_properties.engine.geometry import SubcomponentGeometry
 
 from blade_utilities.recovery.core.cache_types import RecoveryCacheStorage
@@ -35,7 +34,6 @@ def build_recovery_cache(
     z_stations: NDArray[np.float64],
     nodal_R: NDArray[np.float64] | None,
     section0_subcomponents: Sequence[SubcomponentGeometry],
-    enable_tier3: bool = False,
 ) -> RecoveryCacheStorage:
     """
     Parameters
@@ -43,13 +41,11 @@ def build_recovery_cache(
     section_results
         One :class:`SectionSolveResult` per spanwise station (same topology).
     z_stations
-        ``(n_s,)`` spanwise coordinates [m]; used for ``spanwise_dz`` and Tier-3 gradients.
+        ``(n_s,)`` spanwise coordinates [m]; used for ``spanwise_dz``.
     nodal_R
         ``(n_s, 3, 3)`` rotation per station, or ``None`` for identity.
     section0_subcomponents
         Subcomponents at the reference station (materials / ply counts).
-    enable_tier3
-        If true, allocate and fill ``L_rec_sec`` for section-frame ply stresses.
     """
     n_s = len(section_results)
     if n_s == 0:
@@ -78,7 +74,6 @@ def build_recovery_cache(
     m_r = np.stack([plane_stress_voigt_from_R(r_stack[s]) for s in range(n_s)], axis=0)
 
     l_rec = np.zeros((n_s, n_comp, n_ply_max, 3, 7), dtype=np.float64)
-    l_rec_sec = np.zeros((n_s, n_comp, n_ply_max, 3, 7), dtype=np.float64) if enable_tier3 else None
 
     for s in range(n_s):
         res = section_results[s]
@@ -103,8 +98,6 @@ def build_recovery_cache(
                     sigma_mat = tk @ sigma_sec
                     sigma_out = mr @ sigma_mat
                     l_rec[s, p, k, :, j] = sigma_out
-                    if l_rec_sec is not None:
-                        l_rec_sec[s, p, k, :, j] = sigma_sec
 
     l_iso = np.zeros((n_s, n_iso, 3, 7), dtype=np.float64)
     for s in range(n_s):
@@ -118,9 +111,11 @@ def build_recovery_cache(
                 l_iso[s, p, :, j] = mr @ sig
 
     xt0, xc0, yt0, yc0, s120 = ply_strength_pad(section0_subcomponents, comp_idx, n_ply_max)
-    f1, f2 = tsai_wu_strength_tensors(xt0, xc0, yt0, yc0, s120)
-    f1_full = np.broadcast_to(f1, (n_s,) + f1.shape).copy()
-    f2_full = np.broadcast_to(f2, (n_s,) + f2.shape).copy()
+    xt_full = np.broadcast_to(xt0, (n_s,) + xt0.shape).copy()
+    xc_full = np.broadcast_to(xc0, (n_s,) + xc0.shape).copy()
+    yt_full = np.broadcast_to(yt0, (n_s,) + yt0.shape).copy()
+    yc_full = np.broadcast_to(yc0, (n_s,) + yc0.shape).copy()
+    s12_full = np.broadcast_to(s120, (n_s,) + s120.shape).copy()
 
     sigma_allow_iso = np.stack([section_results[s].iso_sigma_allow for s in range(n_s)], axis=0)
     zt = np.stack([section_results[s].Zt for s in range(n_s)], axis=0)
@@ -135,6 +130,14 @@ def build_recovery_cache(
     ply_count = ply_count_row(section0_subcomponents, comp_idx, n_s)
 
     k7 = np.stack([section_results[s].K7 for s in range(n_s)], axis=0)
+
+    # L_rec / L_iso were built per unit beam STRAIN (mode j → ply stress). The public
+    # RecoveryCache API takes beam RESULTANTS (forces/moments), so bake in K7_inv here
+    # so that downstream callers can pass resultants directly.
+    k7_inv = np.linalg.inv(k7)  # (n_s, 7, 7)
+    l_rec = np.einsum("spkqm,smj->spkqj", l_rec, k7_inv, optimize=True)
+    l_iso = np.einsum("spqm,smj->spqj", l_iso, k7_inv, optimize=True)
+
     k6 = np.stack([section_results[s].K6 for s in range(n_s)], axis=0)
     m6 = np.stack([section_results[s].M6 for s in range(n_s)], axis=0)
     shear_center = np.stack([section_results[s].shear_center for s in range(n_s)], axis=0)
@@ -143,9 +146,11 @@ def build_recovery_cache(
     return RecoveryCacheStorage(
         L_rec=l_rec,
         L_iso=l_iso,
-        L_rec_sec=l_rec_sec,
-        F1=f1_full,
-        F2=f2_full,
+        Xt=xt_full,
+        Xc=xc_full,
+        Yt=yt_full,
+        Yc=yc_full,
+        S12=s12_full,
         sigma_allow_iso=sigma_allow_iso,
         Zt=zt,
         S13=s13,
@@ -163,5 +168,4 @@ def build_recovery_cache(
         M6=m6,
         shear_center=shear_center,
         mass_center=mass_center,
-        enable_tier3=enable_tier3,
     )

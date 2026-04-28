@@ -15,7 +15,12 @@ from blade_precompute.section_optimisation import (
     ExtremeLoads,
     OptimBladeGeometry,
 )
-from blade_precompute.section_optimisation.core.types import DesignEvaluation, OptimizationObjective, OptimisationResult
+from blade_precompute.section_optimisation.core.types import (
+    DesignEvaluation,
+    OptimisationObjective,
+    OptimisationResult,
+    objective_from_str,
+)
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial, OrthotropicPly
 
@@ -24,13 +29,8 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def _objective_from_cli(s: str) -> OptimizationObjective:
-    key = (s or "").strip().lower().replace("_", "-")
-    if key in ("min-mass", "minmass"):
-        return "min_mass"
-    if key in ("max-specific-stiffness", "max-stiffness-mass", "specific-stiffness"):
-        return "max_specific_stiffness"
-    raise ValueError(f"Unknown objective {s!r}; use min-mass or max-specific-stiffness.")
+def _objective_from_cli(s: str) -> OptimisationObjective:
+    return objective_from_str(s)
 
 
 def _ply_gfrp(t_ply: float) -> OrthotropicPly:
@@ -73,10 +73,10 @@ def _ply_cfrp(t_ply: float) -> OrthotropicPly:
     )
 
 
-def _smoke_problem_from_yaml(
-    yaml_path: Path, *, objective: OptimizationObjective = "min_mass"
+def _smoke_problem_from_spec(
+    blade_spec_path: Path, *, objective: OptimisationObjective = "min_mass"
 ) -> tuple[BladeDesignProblem, DesignVector]:
-    bg = BladeDesignProblem.load_geometry(yaml_path)
+    bg = BladeDesignProblem.load_geometry(blade_spec_path)
     z = np.asarray(bg.z_stations, dtype=np.float64)
     L = float(z[-1]) if z.size else 1.0
     scale = z / max(L, 1e-12)
@@ -96,7 +96,6 @@ def _smoke_problem_from_yaml(
         solver=None,
         objective=objective,
         ks_rho=35.0,
-        enable_tier3_delam=False,
         n_workers=1,
     )
     dv0 = DesignVector(
@@ -108,7 +107,7 @@ def _smoke_problem_from_yaml(
 
 
 def _smoke_problem_builtin(
-    *, objective: OptimizationObjective = "min_mass"
+    *, objective: OptimisationObjective = "min_mass"
 ) -> tuple[BladeDesignProblem, DesignVector]:
     z = np.linspace(0.0, 8.0, 5, dtype=np.float64)
     L = float(z[-1])
@@ -116,7 +115,6 @@ def _smoke_problem_builtin(
     r_ref[:, 2] = z
     r_ref[:, 1] = 0.015 * (z / L) ** 2
     kappa0 = np.zeros((z.shape[0], 3), dtype=np.float64)
-    tau0 = np.zeros_like(z)
     chord = np.linspace(2.0, 1.2, z.shape[0], dtype=np.float64)
     twist = np.zeros_like(z)
     web_positions = np.array([-0.32, 0.32], dtype=np.float64)
@@ -151,7 +149,6 @@ def _smoke_problem_builtin(
         z_stations=z,
         r_ref=r_ref,
         kappa0=kappa0,
-        tau0=tau0,
         chord=chord,
         twist=twist,
         airfoil_profiles=[],
@@ -183,7 +180,6 @@ def _smoke_problem_builtin(
         solver=None,
         objective=objective,
         ks_rho=35.0,
-        enable_tier3_delam=False,
         n_workers=1,
     )
     dv0 = DesignVector(
@@ -198,9 +194,7 @@ def _print_evaluation(ev: DesignEvaluation) -> None:
     print("DesignEvaluation:")
     print(f"  mass [kg]: {ev.mass:.6g}")
     print(f"  stiffness_metric (int. trace K7): {ev.stiffness_metric:.6g}  S/m: {ev.stiffness_metric / max(ev.mass, 1e-300):.6g}")
-    print(f"  max_fi_tw: {ev.max_fi_tw:.6g}  max_fi_vm: {ev.max_fi_vm:.6g}")
-    if ev.fi_delam is not None:
-        print(f"  max_fi_delam: {ev.max_fi_delam}")
+    print(f"  max_fi_hashin: {ev.max_fi_hashin:.6g}  max_fi_vm: {ev.max_fi_vm:.6g}")
 
 
 def _print_optimisation(res: OptimisationResult) -> None:
@@ -214,10 +208,10 @@ def main() -> None:
         description="Evaluate (or optimise) a blade sizing problem; canonical: DesignEvaluation or OptimisationResult."
     )
     p.add_argument(
-        "--yaml",
+        "--blade-spec",
         type=Path,
         default=None,
-        help=f"Blade geometry YAML (default: example_blade_10.yaml or example_blade.yaml under {_repo_root()} if present, else built-in geometry).",
+        help=f"Blade geometry spec JSON (default: example_blade_10.json or example_blade.json under {_repo_root()} if present, else built-in geometry).",
     )
     p.add_argument(
         "--optimise",
@@ -240,15 +234,15 @@ def main() -> None:
     )
     args = p.parse_args()
     objective = _objective_from_cli(args.objective)
-    yaml_path = args.yaml
-    if yaml_path is None:
-        for name in ("example_blade_10.yaml", "example_blade.yaml"):
+    blade_spec_path = args.blade_spec
+    if blade_spec_path is None:
+        for name in ("example_blade_10.json", "example_blade.json"):
             candidate = _repo_root() / name
             if candidate.is_file():
-                yaml_path = candidate
+                blade_spec_path = candidate
                 break
-    if yaml_path is not None:
-        sizing, dv0 = _smoke_problem_from_yaml(yaml_path, objective=objective)
+    if blade_spec_path is not None:
+        sizing, dv0 = _smoke_problem_from_spec(blade_spec_path, objective=objective)
     else:
         sizing, dv0 = _smoke_problem_builtin(objective=objective)
     ev = sizing.evaluate(dv0)

@@ -1,4 +1,4 @@
-"""Load :class:`~section_optimisation.core.types.OptimBladeGeometry` from YAML."""
+"""Load :class:`~section_optimisation.core.types.OptimBladeGeometry` from a mapping spec."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
-import yaml
 
+from blade_precompute._utils.spec_io import load_mapping
 from blade_precompute.section_properties.engine.geometry import MaterialAssignment
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial
-from blade_precompute.section_properties.io.yaml_materials import laminate_from_yaml_spec
+from blade_precompute.section_properties.io.materials_loader import laminate_from_mapping_spec
 
 from ..core.types import BeamSectionStiffnessSource, OptimBladeGeometry, ThicknessRole
 
@@ -28,30 +28,8 @@ def _build_isotropic(spec: Mapping[str, Any], mat_key: str) -> IsotropicMaterial
 
 
 def load_blade_geometry(path: str | Path) -> OptimBladeGeometry:
-    """
-    Parse YAML with top-level ``blade:`` and optional ``ply_library:``.
-
-    ``blade.twist`` is structural blade twist in **degrees** per ``z_stations`` row (built-in
-    section orientation / washout), not angle of attack or global pitch.
-
-    Each ``blade.subcomponents.<name>`` entry is either::
-
-        material: laminate
-        ply_type: ...
-        layup: [...]
-
-    or::
-
-        material: isotropic
-        E: ...
-        nu: ...
-        rho: ...
-        sigma_allow: ...
-    """
     path = Path(path)
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise ValueError("YAML root must be a mapping.")
+    raw = load_mapping(path)
     run_global_beam = bool(raw.get("run_global_beam", True))
     bss = str(raw.get("beam_section_stiffness_source", "section_properties")).strip().lower()
     if bss != "section_properties":
@@ -63,12 +41,11 @@ def load_blade_geometry(path: str | Path) -> OptimBladeGeometry:
     ply_lib: dict[str, Any] = dict(raw.get("ply_library", {}))
     blade = raw.get("blade")
     if not isinstance(blade, dict):
-        raise ValueError("YAML must contain a mapping 'blade:'.")
+        raise ValueError("Spec must contain a mapping 'blade:'.")
 
     z_stations = np.asarray(blade["z_stations"], dtype=np.float64)
     r_ref = np.asarray(blade["r_ref"], dtype=np.float64)
     kappa0 = np.asarray(blade["kappa0"], dtype=np.float64)
-    tau0 = np.asarray(blade["tau0"], dtype=np.float64)
     chord = np.asarray(blade["chord"], dtype=np.float64)
     twist = np.asarray(blade["twist"], dtype=np.float64)
     web_positions = np.asarray(blade.get("web_positions", [-0.35, 0.35]), dtype=np.float64)
@@ -89,7 +66,7 @@ def load_blade_geometry(path: str | Path) -> OptimBladeGeometry:
         if mtype not in ("laminate", "isotropic") and "layup" in spec:
             mtype = "laminate"
         if mtype == "laminate":
-            subcomponent_materials[name] = laminate_from_yaml_spec(spec, ply_lib, name)
+            subcomponent_materials[name] = laminate_from_mapping_spec(spec, ply_lib, name)
         elif mtype == "isotropic":
             subcomponent_materials[name] = _build_isotropic(spec, name)
         else:
@@ -103,7 +80,6 @@ def load_blade_geometry(path: str | Path) -> OptimBladeGeometry:
         z_stations=z_stations,
         r_ref=r_ref,
         kappa0=kappa0,
-        tau0=tau0,
         chord=chord,
         twist=twist,
         airfoil_profiles=airfoil_profiles,

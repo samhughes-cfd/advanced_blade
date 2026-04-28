@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List
 
 import numpy as np
 from numpy.typing import NDArray
 
-from blade_precompute.section_properties.engine.failure_criteria import tsai_wu_fi, von_mises_plane_stress_fi
-from blade_precompute.section_properties.engine.interlaminar_recovery import delamination_fi, interlaminar_stress_recovery
+from blade_precompute.section_properties.engine.failure_criteria import hashin_fi_plies, von_mises_plane_stress_fi
 
 from blade_utilities.recovery.core.cache_types import RecoveryCacheStorage
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 NPZ_VERSION_KEY = "recovery_cache_version"
 
 
@@ -34,54 +33,20 @@ class RecoveryCache(RecoveryCacheStorage):
         """``(n_case, n_s, n_iso_sub, 3)`` membrane stresses in the rotated shell basis."""
         return np.einsum("spqj,csj->cspq", self.L_iso, beam_resultants, optimize=True)
 
-    def eval_tsai_wu_fi(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64]:
-        """``(n_case, n_s, n_comp_sub, n_ply_max)`` Tsai–Wu failure index per ply."""
+    def eval_hashin_fi(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64]:
+        """``(n_case, n_s, n_comp_sub, n_ply_max)`` Hashin envelope failure index per ply."""
         sig = self.recover_ply_stresses(beam_resultants)
-        return tsai_wu_fi(sig, self.F1, self.F2)
+        return hashin_fi_plies(sig, self.Xt, self.Xc, self.Yt, self.Yc, self.S12)
 
     def eval_von_mises_fi(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64]:
         """``(n_case, n_s, n_iso_sub)`` von Mises FI vs ``sigma_allow_iso``."""
         sig = self.recover_iso_stresses(beam_resultants)
         return von_mises_plane_stress_fi(sig, self.sigma_allow_iso)
 
-    def eval_delamination_fi(self, beam_resultants: NDArray[np.float64]) -> NDArray[np.float64] | None:
-        """
-        ``(n_case, n_s, n_comp_sub, n_interface)`` or ``None`` if Tier-3 was not built.
-
-        Uses section-frame ply stresses (``L_rec_sec``) and spanwise gradients
-        consistent with :func:`blade_precompute.section_properties.engine.interlaminar_recovery.interlaminar_stress_recovery`.
-        """
-        if not self.enable_tier3 or self.L_rec_sec is None:
-            return None
-        n_case = int(beam_resultants.shape[0])
-        n_s = int(self.z_stations.shape[0])
-        n_comp = int(self.L_rec_sec.shape[1])
-        n_if = int(self.L_rec_sec.shape[2]) + 1
-        out = np.zeros((n_case, n_s, n_comp, n_if), dtype=np.float64)
-        if n_s < 2:
-            return out
-        z_ply = self.z_ply_ref
-        for c in range(n_case):
-            r = beam_resultants[c : c + 1]
-            sig_sec = np.einsum("spkqj,csj->cspkq", self.L_rec_sec, r, optimize=True)[0]
-            tau_if = interlaminar_stress_recovery(sig_sec, self.z_stations, z_ply)
-            for s in range(n_s):
-                out[c, s] = delamination_fi(
-                    tau_if[s : s + 1],
-                    self.Zt[s],
-                    self.S13[s],
-                    self.S23[s],
-                )[0]
-        return out
-
     def recover_all_fi(
         self, beam_resultants: NDArray[np.float64]
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64] | None]:
-        return (
-            self.eval_tsai_wu_fi(beam_resultants),
-            self.eval_von_mises_fi(beam_resultants),
-            self.eval_delamination_fi(beam_resultants),
-        )
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        return (self.eval_hashin_fi(beam_resultants), self.eval_von_mises_fi(beam_resultants))
 
     def recover_ply_stresses_chunked(
         self, beam_resultants: NDArray[np.float64], chunk_size: int = 512
@@ -97,8 +62,11 @@ class RecoveryCache(RecoveryCacheStorage):
             NPZ_VERSION_KEY: np.int32(CACHE_VERSION),
             "L_rec": self.L_rec,
             "L_iso": self.L_iso,
-            "F1": self.F1,
-            "F2": self.F2,
+            "Xt": self.Xt,
+            "Xc": self.Xc,
+            "Yt": self.Yt,
+            "Yc": self.Yc,
+            "S12": self.S12,
             "sigma_allow_iso": self.sigma_allow_iso,
             "Zt": self.Zt,
             "S13": self.S13,
@@ -112,12 +80,9 @@ class RecoveryCache(RecoveryCacheStorage):
             "M6": self.M6,
             "shear_center": self.shear_center,
             "mass_center": self.mass_center,
-            "enable_tier3": np.array([self.enable_tier3], dtype=np.bool_),
             "composite_subcomp_idx": np.array(self.composite_subcomp_idx, dtype=np.int32),
             "isotropic_subcomp_idx": np.array(self.isotropic_subcomp_idx, dtype=np.int32),
         }
-        if self.L_rec_sec is not None:
-            d["L_rec_sec"] = self.L_rec_sec
         d["composite_subcomp_names"] = np.array(self.composite_subcomp_names, dtype=object)
         d["isotropic_subcomp_names"] = np.array(self.isotropic_subcomp_names, dtype=object)
         return d
@@ -127,31 +92,33 @@ class RecoveryCache(RecoveryCacheStorage):
         def _arr(key: str) -> NDArray[np.float64]:
             return np.asarray(d[key], dtype=np.float64)
 
+        raw_v = d.get(NPZ_VERSION_KEY, np.int32(0))
+        ver = int(np.asarray(raw_v, dtype=np.int32).ravel()[0])
+        if ver < CACHE_VERSION:
+            raise ValueError(
+                f"Unsupported recovery cache version {ver} (minimum {CACHE_VERSION}). "
+                "v1 caches used Tsai–Wu F1/F2; rebuild the NPZ with the current code (Hashin strengths)."
+            )
+        if "F1" in d and "Xt" not in d:
+            raise ValueError(
+                "Recovery cache appears to be v1 (F1/F2 keys only). Rebuild the NPZ; "
+                "Hashin ply strengths (Xt, Xc, Yt, Yc, S12) are required."
+            )
+
         def _idx_arr(key: str) -> List[int]:
             return [int(x) for x in np.asarray(d[key]).ravel()]
 
         def _names(key: str) -> List[str]:
             return [str(x) for x in np.asarray(d[key], dtype=object).ravel()]
 
-        l_rec_sec_opt: Optional[NDArray[np.float64]]
-        raw_sec = d.get("L_rec_sec")
-        if raw_sec is None:
-            l_rec_sec_opt = None
-        else:
-            l_rec_sec_opt = np.asarray(raw_sec, dtype=np.float64)
-
-        en = d["enable_tier3"]
-        if isinstance(en, np.ndarray):
-            enable_t3 = bool(en.ravel()[0])
-        else:
-            enable_t3 = bool(en)
-
         return RecoveryCache(
             L_rec=_arr("L_rec"),
             L_iso=_arr("L_iso"),
-            L_rec_sec=l_rec_sec_opt,
-            F1=_arr("F1"),
-            F2=_arr("F2"),
+            Xt=_arr("Xt"),
+            Xc=_arr("Xc"),
+            Yt=_arr("Yt"),
+            Yc=_arr("Yc"),
+            S12=_arr("S12"),
             sigma_allow_iso=_arr("sigma_allow_iso"),
             Zt=_arr("Zt"),
             S13=_arr("S13"),
@@ -169,7 +136,6 @@ class RecoveryCache(RecoveryCacheStorage):
             M6=_arr("M6"),
             shear_center=_arr("shear_center"),
             mass_center=_arr("mass_center"),
-            enable_tier3=enable_t3,
         )
 
 

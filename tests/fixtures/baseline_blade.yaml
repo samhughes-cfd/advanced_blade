@@ -1,0 +1,59 @@
+# Baseline blade fixture for regression / agreement tests (I.10).
+#
+# This file documents the acceptance bands for a validated baseline blade.
+# Update ``reference_values`` each time a major modelling change is made;
+# record the reason in the git commit message.
+#
+# Agreement bands (I.10):
+#   K6/K7 diagonal entries vs benchmark     : < 5%  relative error
+#   mass per unit length vs benchmark        : < 2%  relative error
+#   critical failure index vs benchmark      : < 10% relative error
+#   flapwise tip deflection vs benchmark     : < 10% relative error
+#
+# How to generate reference_values:
+#   1. Run the pipeline with N_STRUCTURAL=10, N_GEOMETRY=176 on the data_library
+#      baseline blade (2D-F system type, material_id 0 for skin/cap/web).
+#   2. Copy the K7 diagonal from section_properties/summary.json and the
+#      max_fi_hashin / tip_deflection from section_optimisation/design_eval.json.
+#   3. Set ``generated_at`` to the current date.
+#
+# Status: placeholder values — replace with actual run values before CI gating.
+
+metadata:
+  system_type: "2D-F"
+  n_structural: 10
+  n_geometry: 176
+  n_beam_nodes: 50
+  optimizer_objective: "min_mass"
+  optimizer_max_iter: 120
+  generated_at: "2026-04-25"
+  generated_by: "manual — replace with CI run"
+  note: "Placeholder baseline. Run the pipeline and update reference_values."
+
+reference_values:
+  # Mass per unit span at root station [kg/m]; < 2% tolerance.
+  mass_per_length_root_kg_per_m: null          # TODO: fill from run
+
+  # K7 diagonal at mid-span station (z ≈ 50% of L) [SI units].
+  K7_diag_mid_span:
+    EA:   null                                 # [N]
+    EIy:  null                                 # [N·m²]
+    EIz:  null                                 # [N·m²]
+    GJ:   null                                 # [N·m²]
+    GAy:  null                                 # [N]
+    GAz:  null                                 # [N]
+    EIw:  null                                 # [N·m⁴] (warping, K7[6,6])
+
+  # Peak Hashin failure index at optimum design (< 10% tolerance).
+  max_fi_hashin_at_optimum: null               # dimensionless
+
+  # Flapwise tip deflection [m] from coupled FE result or prescribed driver
+  # (< 10% of blade length tolerance).
+  tip_deflection_m: null                       # [m]
+  blade_length_m:   null                       # [m]
+
+acceptance_bands:
+  K7_diagonal_rel:       0.05                  # 5% relative error on K7 diagonal
+  mass_per_length_rel:   0.02                  # 2% relative error on mass/length
+  max_fi_hashin_rel:     0.10                  # 10% relative error on critical FI
+  tip_deflection_rel:    0.10                  # 10% relative error on tip deflection

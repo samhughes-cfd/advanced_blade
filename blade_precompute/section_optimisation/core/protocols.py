@@ -7,8 +7,15 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from numpy.typing import NDArray
 
-from ..engine.beam_k7 import PrescribedResultantBeamState, solve as prescribed_resultant_solve
 from .types import ExtremeLoads, OptimBladeGeometry
+
+
+@runtime_checkable
+class BeamResultantStateProtocol(Protocol):
+    """Result object returned by a beam resultant driver."""
+
+    resultants: NDArray[np.float64]
+    nodal_R: NDArray[np.float64]
 
 
 @runtime_checkable
@@ -20,18 +27,7 @@ class BeamResultantDriverProtocol(Protocol):
         K7_stack: NDArray[np.float64],
         extreme_loads: ExtremeLoads,
         blade_geometry: OptimBladeGeometry,
-    ) -> PrescribedResultantBeamState: ...
-
-
-class PrescribedResultantDriver:
-    """Default implementation wrapping :func:`~section_optimisation.engine.beam_k7.solve`."""
-
-    __slots__ = ()
-
-    def drive(
-        self,
-        K7_stack: NDArray[np.float64],
-        extreme_loads: ExtremeLoads,
-        blade_geometry: OptimBladeGeometry,
-    ) -> PrescribedResultantBeamState:
-        return prescribed_resultant_solve(K7_stack, extreme_loads, blade_geometry)
+        *,
+        K6_stack: NDArray[np.float64] | None = None,
+        mass_per_length: NDArray[np.float64] | None = None,
+    ) -> BeamResultantStateProtocol: ...

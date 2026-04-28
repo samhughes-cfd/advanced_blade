@@ -31,7 +31,7 @@ flowchart LR
 **Geometry / kinematics vs. real blade physics**
 
 - **Level-2 gap (explicitly out of scope):** **Section shape distortion under large torsion** (order of magnitude **> ~15°**) is not modelled; documentation points to shell-based section analysis ([`blade_precompute/global_beam_model/__init__.py`](../blade_precompute/global_beam_model/__init__.py), [`blade_precompute/global_beam_model/core/types.py`](../blade_precompute/global_beam_model/core/types.py)).
-- **Reference geometry:** Blade → beam uses **linear resampling** of `r_ref` and reference curvatures along `z_stations` ([`blade_precompute/global_beam_model/engine/blade_geometry.py`](../blade_precompute/global_beam_model/engine/blade_geometry.py)); twist rate `tau0` is folded into the first curvature component of `kappa0` (documented in that file)—a modelling choice users must interpret correctly for highly twisted blades.
+- **Reference geometry:** Blade → beam uses **linear resampling** of `r_ref` and reference curvatures along `z_stations` ([`blade_precompute/global_beam_model/engine/blade_geometry.py`](../blade_precompute/global_beam_model/engine/blade_geometry.py)); reference strain curvature is provided directly by `kappa0 = [kappa0_x, kappa0_y, kappa0_z]`, while geometric section orientation is provided separately by spanwise twist (`twist` / `twist_dist`).
 - **Elements:** **Two-node straight** reference segments with low-order Gauss (**only 1- or 2-point** rules implemented) ([`blade_precompute/global_beam_model/engine/element.py`](../blade_precompute/global_beam_model/engine/element.py)).
 
 **Solver / analysis scope**

@@ -1,17 +1,14 @@
-"""Resample spanwise blade arrays in a YAML to a new station count."""
+"""Resample spanwise blade arrays in a blade mapping spec to a new station count."""
 
 from __future__ import annotations
 
-import argparse
-from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
-import yaml
 from numpy.typing import NDArray
 
 
-def resample_blade_yaml(
+def resample_blade_spec(
     raw: Mapping[str, Any],
     *,
     n_stations: int,
@@ -27,7 +24,7 @@ def resample_blade_yaml(
         raise ValueError("n_stations must be >= 1.")
     blade = raw.get("blade")
     if not isinstance(blade, dict):
-        raise ValueError("YAML must contain a mapping 'blade:'.")
+        raise ValueError("Spec must contain a mapping 'blade:'.")
 
     z_src = np.asarray(blade["z_stations"], dtype=np.float64).ravel()
     if z_src.size < 2 and n_stations > 1:
@@ -58,7 +55,6 @@ def resample_blade_yaml(
         raise ValueError("kappa0 must have shape (n_stations, 3).")
     new_kappa = np.column_stack([interp_1d(kappa0[:, j]) for j in range(3)])
 
-    new_tau = interp_1d(blade["tau0"])
     new_chord = interp_1d(blade["chord"])
     new_twist = interp_1d(blade["twist"])
 
@@ -74,7 +70,6 @@ def resample_blade_yaml(
     blade_out["z_stations"] = [float(x) for x in z_new]
     blade_out["r_ref"] = new_r.tolist()
     blade_out["kappa0"] = new_kappa.tolist()
-    blade_out["tau0"] = [float(x) for x in new_tau]
     blade_out["chord"] = [float(x) for x in new_chord]
     blade_out["twist"] = [float(x) for x in new_twist]
     blade_out["airfoil_profiles"] = new_airfoils
@@ -84,45 +79,3 @@ def resample_blade_yaml(
         out["ply_library"] = raw["ply_library"]
     out["blade"] = blade_out
     return out
-
-
-def _write_yaml(path: Path, data: dict[str, Any], *, header: str = "") -> None:
-    text = yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    path.write_text(header + text, encoding="utf-8")
-
-
-def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(
-        description="Resample blade spanwise arrays in a YAML to N uniform stations.",
-    )
-    p.add_argument("input", type=Path, help="Input blade YAML (e.g. example_blade_hires.yaml).")
-    p.add_argument("-o", "--output", type=Path, required=True, help="Output YAML path.")
-    p.add_argument(
-        "-n",
-        "--n-stations",
-        type=int,
-        required=True,
-        help="Target number of spanwise stations (uniform z from first to last source z).",
-    )
-    p.add_argument(
-        "--header",
-        type=str,
-        default="",
-        help="Optional comment prefix written before the YAML document (e.g. '# Regenerated\\n').",
-    )
-    args = p.parse_args(argv)
-
-    raw = yaml.safe_load(args.input.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise SystemExit("Top-level YAML must be a mapping.")
-    out = resample_blade_yaml(raw, n_stations=int(args.n_stations))
-    hdr = args.header
-    if hdr and not hdr.endswith("\n"):
-        hdr = hdr + "\n"
-    _write_yaml(args.output, out, header=hdr)
-    print(str(args.output.resolve()))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

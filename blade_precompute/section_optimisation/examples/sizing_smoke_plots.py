@@ -1,28 +1,21 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
 
-_p = Path(__file__).resolve()
-while _p.name != "blade_precompute" and _p.parent != _p:
-    _p = _p.parent
-if _p.name == "blade_precompute":
-    sys.path.insert(0, str(_p.parent))
-
 from blade_precompute.section_optimisation import BladeOptimizer
-from blade_precompute.section_optimisation.__main__ import _repo_root, _smoke_problem_builtin, _smoke_problem_from_yaml
+from blade_precompute.section_optimisation.__main__ import _repo_root, _smoke_problem_builtin, _smoke_problem_from_spec
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Run the section_optimisation smoke sizing case and save plots to PDF.")
     p.add_argument(
-        "--yaml",
+        "--blade-spec",
         type=Path,
         default=None,
-        help="Optional blade geometry YAML. Default: example_blade_10.yaml or example_blade.yaml if present, else built-in geometry.",
+        help="Optional blade geometry spec JSON. Default: example_blade_10.json or example_blade.json if present, else built-in geometry.",
     )
     p.add_argument("--optimise", action="store_true", help="Run SLSQP optimisation after evaluation.")
     p.add_argument("--maxiter", type=int, default=120, help="SLSQP max iterations when --optimise is set.")
@@ -34,16 +27,16 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    yaml_path = args.yaml
-    if yaml_path is None:
-        for name in ("example_blade_10.yaml", "example_blade.yaml"):
+    blade_spec_path = args.blade_spec
+    if blade_spec_path is None:
+        for name in ("example_blade_10.json", "example_blade.json"):
             candidate = _repo_root() / name
             if candidate.is_file():
-                yaml_path = candidate
+                blade_spec_path = candidate
                 break
 
-    if yaml_path is not None:
-        sizing, dv0 = _smoke_problem_from_yaml(yaml_path)
+    if blade_spec_path is not None:
+        sizing, dv0 = _smoke_problem_from_spec(blade_spec_path)
     else:
         sizing, dv0 = _smoke_problem_builtin()
 
@@ -75,7 +68,7 @@ def main() -> None:
             pdf.savefig(f, bbox_inches="tight")
             plt.close(f)
 
-    print(f"Saved: {outp}  (mass={ev.mass:.4f} kg, max_TW={ev.max_fi_tw:.4f}, max_VM={ev.max_fi_vm:.4f})")
+    print(f"Saved: {outp}  (mass={ev.mass:.4f} kg, max_Hashin={ev.max_fi_hashin:.4f}, max_VM={ev.max_fi_vm:.4f})")
 
 
 if __name__ == "__main__":

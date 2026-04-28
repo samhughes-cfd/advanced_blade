@@ -26,14 +26,12 @@ class RecoveryCacheBuilder:
         z_stations: NDArray[np.float64],
         *,
         nodal_R_stack: NDArray[np.float64] | None = None,
-        enable_tier3: bool = False,
     ) -> RecoveryCacheStorage:
         return build_recovery_cache(
             section_results=list(section_results),
             z_stations=z_stations,
             nodal_R=nodal_R_stack,
             section0_subcomponents=section0_subcomponents,
-            enable_tier3=enable_tier3,
         )
 
     @staticmethod

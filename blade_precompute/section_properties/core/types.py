@@ -3,6 +3,11 @@ Types for midsurface cross-section analysis (Vlasov extension + CLPT).
 
 Beam axis **x**; section plane **(y, z)**.
 
+Coordinate naming convention:
+
+- ``z`` is the spanwise station coordinate passed between section/beam stages.
+- ``s`` (when present in section geometry internals) is local contour/abscissa parameterisation.
+
 Generalised beam resultants (``K6`` / ``K7`` coupling to six classical strains):
 
   index 0 : N   — axial force
@@ -70,6 +75,13 @@ class SectionSolveResult:
     iso_thickness: NDArray[np.float64]
     iso_C: NDArray[np.float64]
     iso_sigma_allow: NDArray[np.float64]
+    # Shell CLPT recovery arrays for isotropic subs (Fix 4b/4c)
+    # iso_ABD_inv : (n_iso, 6, 6) — inverse of build_isotropic_ABD
+    # iso_Q_bar   : (n_iso, 1, 3, 3) — plane-stress Q (single surface "ply")
+    # iso_z_ply   : (n_iso, 1) — ply z-coordinate = t/2 (outer surface)
+    iso_ABD_inv: NDArray[np.float64]
+    iso_Q_bar: NDArray[np.float64]
+    iso_z_ply: NDArray[np.float64]
     Zt: NDArray[np.float64]
     S13: NDArray[np.float64]
     S23: NDArray[np.float64]

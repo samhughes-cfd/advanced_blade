@@ -26,7 +26,6 @@ def _tiny_blade(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
     r_ref[:, 1] = 0.01 * (z / z[-1]) ** 2
     kappa0 = np.zeros((n_s, 3), dtype=np.float64)
     kappa0[:, 1] = 0.002
-    tau0 = np.zeros_like(z)
     chord = np.full_like(z, 1.5)
     twist = np.zeros_like(z)
     web_positions = np.array([-0.3, 0.3], dtype=np.float64)
@@ -54,7 +53,6 @@ def _tiny_blade(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
         z_stations=z,
         r_ref=r_ref,
         kappa0=kappa0,
-        tau0=tau0,
         chord=chord,
         twist=twist,
         airfoil_profiles=[],
@@ -88,7 +86,6 @@ def test_fused_ply_and_iso_match_explicit_chain_identity_R(tmp_path):
             z_stations=bg.z_stations,
             nodal_R=nodal_R,
             section0_subcomponents=sections[0].subcomponents,
-            enable_tier3=True,
         ).__dict__
     )
 
@@ -118,7 +115,6 @@ def test_fused_ply_and_iso_match_explicit_chain_identity_R(tmp_path):
     loaded = load_cache(str(path))
     np.testing.assert_allclose(loaded.L_rec, cache.L_rec)
     np.testing.assert_allclose(loaded.L_iso, cache.L_iso)
-    assert loaded.enable_tier3 == cache.enable_tier3
 
 
 def test_plane_stress_rotation_matches_tensor_formula():
