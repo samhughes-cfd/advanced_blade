@@ -1,4 +1,4 @@
-"""JSON serialization helpers for precompute artifacts."""
+"""JSON serialization helpers for blade_precompute artifacts."""
 
 from __future__ import annotations
 

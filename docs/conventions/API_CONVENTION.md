@@ -593,6 +593,14 @@ The following issues commonly arise and should be avoided or refactored over tim
    - Some legacy classes may use `run()`, `compute()`, or `select()`
    - Public patterns should converge on `execute()`, `evaluate()`, and `visualise()`
 
+4. **FE/math kernel modules**
+   - Low-level numerical kernels (element assembly, constitutive maps, interpolation kernels, linear/nonlinear solvers)
+     may remain function-oriented for performance and readability.
+   - In these modules, strict class naming (`execute()`/`evaluate()`) is optional if the package-level facade
+     presents a stable orchestration API.
+   - Examples include finite-element assembly modules and constitutive helper modules where object lifecycle
+     does not add value.
+
 ---
 
 ## Summary

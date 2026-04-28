@@ -22,22 +22,27 @@ def _dummy_inputs() -> PrecomputeInputs:
         spanwise_path=Path("x"),
         extreme_loads_path=Path("y"),
         span_r_z_m=np.array([0.0, 4.0, 8.0], dtype=np.float64),
+        radial_r_m=np.array([0.0, 4.0, 8.0], dtype=np.float64),
         chord_m=np.array([2.0, 1.6, 1.2], dtype=np.float64),
         twist_deg=np.zeros(3, dtype=np.float64),
         naca_m=np.array([0.0, 2.0, 4.0], dtype=np.float64),
         naca_p=np.array([0.0, 4.0, 4.0], dtype=np.float64),
         naca_xx=np.array([12.0, 12.0, 12.0], dtype=np.float64),
+        naca_series=np.full(3, 4, dtype=np.int64),
         loads_r_z_m=np.array([0.0, 8.0], dtype=np.float64),
         q_y_Npm=np.zeros(2, dtype=np.float64),
         q_z_Npm=np.zeros(2, dtype=np.float64),
         m_x_Nmpm=np.zeros(2, dtype=np.float64),
+        kappa0_x=np.zeros(3, dtype=np.float64),
+        kappa0_y=np.zeros(3, dtype=np.float64),
+        kappa0_z=np.zeros(3, dtype=np.float64),
     )
 
 
 def _orch() -> PrecomputeOrchestrationContext:
     return PrecomputeOrchestrationContext(
-        system_type_key="legacy",
-        layout=resolve_system_type("legacy"),
+        system_type_key="2D-CN",
+        layout=resolve_system_type("2D-CN"),
         component_materials=ComponentMaterialsMap(skin=0, spar_cap=0, shear_web=0),
     )
 
@@ -47,7 +52,7 @@ def test_stage_get_results_requires_execute() -> None:
         params=SectionGeometryParams(
             inp=_dummy_inputs(),
             out_dir=Path("."),
-            plot_station_spec="root",
+            section_plot_station_spec="root",
             orchestration=_orch(),
         )
     )
@@ -67,7 +72,7 @@ def test_execute_returns_self_and_is_idempotent(mock_impl: object, tmp_path: Pat
         params=SectionGeometryParams(
             inp=_dummy_inputs(),
             out_dir=tmp_path,
-            plot_station_spec="root",
+            section_plot_station_spec="root",
             orchestration=_orch(),
         )
     )

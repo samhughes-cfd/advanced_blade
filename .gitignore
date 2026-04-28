@@ -2,9 +2,13 @@
 .pytest_cache/
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 outputs/
 _artifacts/
 *.egg-info/
 .venv/
 venv/
 .DS_Store
+_tmp_beam_probe/
+tools/scratch/output/

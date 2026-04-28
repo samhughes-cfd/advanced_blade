@@ -51,41 +51,15 @@ def _display_png_paths(paths: list[Path], *, title: str) -> None:
 
 
 def plot_section_properties_station(section_def: Any, res: Any, out_png: Path) -> None:
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError as e:  # pragma: no cover
-        raise ImportError("section_properties station plots require matplotlib.") from e
+    from blade_precompute.section_properties.vis import (
+        plot_section_properties_station as plot_section_properties_station_impl,
+    )
 
-    fig, ax = plt.subplots(figsize=(7.5, 3.8))
-    for sub in section_def.subcomponents:
-        pts = np.asarray(sub.midsurface_coords, dtype=np.float64)
-        ax.plot(pts[:, 0], pts[:, 1], ".-", lw=1.5, ms=5, label=sub.name)
-
-    def mark(pt: NDArray[np.float64], label: str, color: str) -> None:
-        p = np.asarray(pt, dtype=np.float64).ravel()
-        ax.plot([p[0]], [p[1]], marker="x", ms=9, mew=2, color=color)
-        ax.annotate(label, (p[0], p[1]), textcoords="offset points", xytext=(6, 6), color=color)
-
-    mark(res.elastic_center, "elastic", "C3")
-    mark(res.shear_center, "shear", "C4")
-    mark(res.mass_center, "mass", "C5")
-
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlabel("y [m]")
-    ax.set_ylabel("z [m]")
-    ax.set_title(f"section_properties @ z={float(section_def.station_z):.3g} m")
-    ax.grid(True, alpha=0.25)
-    ax.legend(loc="best", fontsize=8)
-    fig.tight_layout()
-
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_png, dpi=170, bbox_inches="tight")
-    plt.close(fig)
+    plot_section_properties_station_impl(section_def, res, out_png)
 
 
-# Uniform spanwise sample count for all global_beam_model PNGs (Gauss, nodal, and section recovery
-# series are linearly interpolated to this grid so x-axes are aligned across figures).
-BEAM_SPAN_PLOT_SAMPLES: int = 400
+# Default uniform spanwise sample count for global_beam_model PNGs when callers omit ``span_plot_samples``.
+_DEFAULT_BEAM_PNG_SPAN_SAMPLES: int = 400
 
 
 def write_beam_model_pngs(
@@ -93,6 +67,8 @@ def write_beam_model_pngs(
     model: Any,
     res: Any,
     loads: Any,
+    *,
+    span_plot_samples: int | None = None,
 ) -> list[Path]:
     """Generate standard global_beam_model PNGs; returns written paths."""
     png_paths: list[Path] = []
@@ -103,34 +79,31 @@ def write_beam_model_pngs(
     except ImportError:
         return png_paths
 
-    z_u = bmplot.span_abscissa_union(res, model, loads, BEAM_SPAN_PLOT_SAMPLES)
+    n_samp = int(span_plot_samples) if span_plot_samples is not None else _DEFAULT_BEAM_PNG_SPAN_SAMPLES
+    z_u = bmplot.span_abscissa_union(res, model, loads, n_samp)
 
     figs: list[tuple[str, Any]] = []
     fig, _ = bmplot.plot_centerline_ref_def(model, res)
     figs.append(("beam_centerline.png", fig))
-    fig, _ = bmplot.plot_spanwise_resultants(res, z_abscissa=z_u)
+    fig, _ = bmplot.plot_spanwise_resultants(res)
     figs.append(("beam_resultants.png", fig))
-    fig, _ = bmplot.plot_spanwise_strains(res, z_abscissa=z_u)
+    fig, _ = bmplot.plot_spanwise_strains(res)
     figs.append(("beam_strains.png", fig))
-    fig, _ = bmplot.plot_spanwise_resultants_nodal(res, z_abscissa=z_u)
-    figs.append(("beam_resultants_nodal.png", fig))
-    fig, _ = bmplot.plot_spanwise_strains_nodal(res, z_abscissa=z_u)
-    figs.append(("beam_strains_nodal.png", fig))
     for name, make_fig in (
-        ("beam_section_stress.png", lambda: bmplot.plot_spanwise_section_stress(res, z_abscissa=z_u)),
-        ("beam_section_strain_laminate.png", lambda: bmplot.plot_spanwise_section_strain_laminate(res, z_abscissa=z_u)),
-        ("beam_section_tsai_wu.png", lambda: bmplot.plot_spanwise_section_tsai_wu(res, z_abscissa=z_u)),
-        ("beam_section_von_mises_fi.png", lambda: bmplot.plot_spanwise_section_von_mises_fi(res, z_abscissa=z_u)),
-        ("beam_section_delamination_fi.png", lambda: bmplot.plot_spanwise_section_delamination_fi(res, z_abscissa=z_u)),
-        ("beam_section_stress_secframe.png", lambda: bmplot.plot_spanwise_section_stress_secframe(res, z_abscissa=z_u)),
-        ("beam_section_d_tsai_wu_dz.png", lambda: bmplot.plot_spanwise_section_d_tsai_wu_dz(res, z_abscissa=z_u)),
+        ("beam_section_stress.png", lambda: bmplot.plot_spanwise_section_stress(res)),
+        ("beam_section_stress_nodal.png", lambda: bmplot.plot_spanwise_section_stress_nodal(res)),
+        ("beam_section_strain_laminate.png", lambda: bmplot.plot_spanwise_section_strain_laminate(res)),
+        ("beam_section_hashin_fi.png", lambda: bmplot.plot_spanwise_section_hashin_fi(res)),
+        ("beam_section_von_mises_fi.png", lambda: bmplot.plot_spanwise_section_von_mises_fi(res)),
+        ("beam_section_stress_secframe.png", lambda: bmplot.plot_spanwise_section_stress_secframe(res)),
+        ("beam_section_d_hashin_fi_dz.png", lambda: bmplot.plot_spanwise_section_d_hashin_fi_dz(res)),
         (
-            "beam_section_tsai_wu_fi_heatmap_gp.png",
-            lambda: bmplot.plot_spanwise_section_tsai_wu_fi_heatmap(res, source="gp", z_abscissa=z_u),
+            "beam_section_hashin_fi_heatmap_gp.png",
+            lambda: bmplot.plot_spanwise_section_hashin_fi_heatmap(res, source="gp"),
         ),
         (
-            "beam_section_tsai_wu_fi_heatmap_nodal.png",
-            lambda: bmplot.plot_spanwise_section_tsai_wu_fi_heatmap(res, source="nodal", z_abscissa=z_u),
+            "beam_section_hashin_fi_heatmap_nodal.png",
+            lambda: bmplot.plot_spanwise_section_hashin_fi_heatmap(res, source="nodal"),
         ),
     ):
         try:
@@ -147,11 +120,21 @@ def write_beam_model_pngs(
     fig, _ = bmplot.plot_distributed_loads(model, loads, z_abscissa=z_u)
     figs.append(("beam_distributed_loads.png", fig))
 
+    # Same figures as beam_resultants.png / beam_strains.png (GP markers + nodal projection);
+    # duplicate filenames match historical precompute output naming.
+    _png_aliases: dict[str, tuple[str, ...]] = {
+        "beam_resultants.png": ("beam_resultants_nodal.png",),
+        "beam_strains.png": ("beam_strains_nodal.png",),
+    }
     for name, fig in figs:
         p = (out_stage / name).resolve()
         fig.savefig(p, dpi=170, bbox_inches="tight")
-        plt.close(fig)
         png_paths.append(p)
+        for alias in _png_aliases.get(name, ()):
+            pa = (out_stage / alias).resolve()
+            fig.savefig(pa, dpi=170, bbox_inches="tight")
+            png_paths.append(pa)
+        plt.close(fig)
     return png_paths
 
 
@@ -160,17 +143,30 @@ def write_section_optimisation_pngs(
     z: NDArray[np.float64],
     dv0: Any,
     opt_res: Any | None,
+    *,
+    ev0: Any | None = None,
+    ev_opt: Any | None = None,
+    problem: Any | None = None,
+    composite_subcomp_names: Any | None = None,
 ) -> list[Path]:
     from blade_precompute.section_optimisation.interface import plot as dplot
 
     import matplotlib.pyplot as plt
 
+    def _save(name: str, fig: Any) -> None:
+        p = (out_stage / name).resolve()
+        fig.savefig(p, dpi=170, bbox_inches="tight")
+        plt.close(fig)
+        png_paths.append(p)
+
     png_paths: list[Path] = []
     fig, _ = dplot.plot_design_vector_vs_span(z, dv0, title="Initial design vector (precompute)")
-    p = (out_stage / "design_vector.png").resolve()
-    fig.savefig(p, dpi=170, bbox_inches="tight")
-    plt.close(fig)
-    png_paths.append(p)
+    _save("design_vector.png", fig)
+    ev_final = ev_opt
+    if opt_res is not None and ev_final is None and getattr(opt_res, "evaluations", None):
+        evs = opt_res.evaluations
+        if evs:
+            ev_final = evs[-1]
     if opt_res is not None:
         fig, _ = dplot.plot_design_vector_vs_span(
             z,
@@ -178,15 +174,100 @@ def write_section_optimisation_pngs(
             dv_compare=dv0,
             title="Optimised vs initial design vector (precompute)",
         )
-        p2 = (out_stage / "design_vector_optimised.png").resolve()
-        fig.savefig(p2, dpi=170, bbox_inches="tight")
-        plt.close(fig)
-        png_paths.append(p2)
+        _save("design_vector_optimised.png", fig)
         fig, _ = dplot.plot_optimisation_history(opt_res)
-        p3 = (out_stage / "section_optimisation_history.png").resolve()
-        fig.savefig(p3, dpi=170, bbox_inches="tight")
-        plt.close(fig)
-        png_paths.append(p3)
+        _save("section_optimisation_history.png", fig)
+        fig, _ = dplot.plot_optimisation_history(opt_res, title="Section optimisation convergence history")
+        _save("section_optimisation_convergence_history.png", fig)
+
+    if ev0 is not None:
+        try:
+            fig, _ = dplot.plot_max_fi_vs_span(
+                z, ev0, ev_final, problem=problem, title="Max failure index vs span"
+            )
+            _save("max_fi_vs_span.png", fig)
+        except Exception:
+            plt.close("all")
+        try:
+            fig, _ = dplot.plot_fi_reserve_vs_span(z, ev0, ev_final, problem=problem)
+            _save("fi_reserve_vs_span.png", fig)
+        except Exception:
+            plt.close("all")
+        try:
+            if composite_subcomp_names is not None:
+                fig, _ = dplot.plot_governing_subcomp_hashin_vs_span(
+                    z, ev0, composite_subcomp_names, problem=problem
+                )
+                _save("governing_subcomp_hashin.png", fig)
+        except Exception:
+            plt.close("all")
+        try:
+            if ev_final is not None:
+                fig, _ = dplot.plot_mitc4_vs_hashin_span(z, ev_final, problem=problem)
+                _save("mitc4_vs_hashin_span.png", fig)
+            else:
+                fig, _ = dplot.plot_mitc4_vs_hashin_span(z, ev0, problem=problem)
+                _save("mitc4_vs_hashin_span.png", fig)
+        except Exception:
+            plt.close("all")
+        try:
+            fig, _ = dplot.plot_resultants_with_max_fi(
+                z, ev0, ev_final, problem=problem, title="Beam resultants and max Hashin FI vs span"
+            )
+            _save("resultants_with_max_fi.png", fig)
+        except Exception:
+            plt.close("all")
+        try:
+            fig, _ = dplot.plot_fi_span_heatmap(z, ev0, ev_final, problem=problem)
+            _save("fi_span_heatmap.png", fig)
+        except Exception:
+            plt.close("all")
+        try:
+            fig, _ = dplot.plot_panel_buckling_fi_vs_span(z, ev0, ev_final, problem=problem)
+            _save("panel_buckling_fi_vs_span.png", fig)
+        except Exception:
+            plt.close("all")
+        try:
+            fig, _ = dplot.plot_k7_condition_summary(ev0, ev_final, problem=problem)
+            _save("k7_condition_summary.png", fig)
+        except Exception:
+            plt.close("all")
+        try:
+            dv_share = opt_res.dv_opt if opt_res is not None else dv0
+            fig, _ = dplot.plot_thickness_share_vs_span(z, dv_share, problem=problem)
+            _save("thickness_normalised_vs_span.png", fig)
+        except Exception:
+            plt.close("all")
+        if opt_res is not None and problem is not None:
+            try:
+                fig, _ = dplot.plot_optimisation_slack_stiffness_history(opt_res, problem)
+                _save("section_optimisation_slack_stiffness_history.png", fig)
+            except Exception:
+                plt.close("all")
+            try:
+                fig, _ = dplot.plot_optimisation_objective_dual_axis(opt_res, problem)
+                _save("optimisation_objective_dual_axis.png", fig)
+            except Exception:
+                plt.close("all")
+            try:
+                if len(getattr(opt_res, "evaluations", []) or []) > 1:
+                    fig, _ = dplot.plot_fi_vs_span_per_iteration(z, opt_res, problem=problem)
+                    _save("fi_vs_span_per_iteration.png", fig)
+            except Exception:
+                plt.close("all")
+        if opt_res is not None:
+            try:
+                fig, _ = dplot.plot_thickness_delta_vs_span(z, dv0, opt_res.dv_opt, problem=problem)
+                _save("thickness_delta_vs_span.png", fig)
+            except Exception:
+                plt.close("all")
+        try:
+            ev_nr = ev_final if ev_final is not None else ev0
+            fig, _ = dplot.plot_beam_nr_residual_tail(ev_nr, problem=problem)
+            _save("beam_nr_residual_tail.png", fig)
+        except Exception:
+            plt.close("all")
+
     return png_paths
 
 

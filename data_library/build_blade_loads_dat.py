@@ -1,11 +1,15 @@
 """
 Emit dummy extreme and operational blade load ``.dat`` files.
 
+The spanwise grid and ``radial_pos`` bookkeeping column are taken from
+``blade_spanwise_distribution.dat`` (which may also list ``norm_radial_pos`` and
+``norm_spanwise_pos`` non-dimensional grids) so load tables stay aligned with the blade geometry.
+Distributed magnitudes are the same non-physical demo envelopes as before (root → tip).
+
 Schema (distributed inputs; internal resultants come from integration elsewhere):
 
-  - ``extreme_load_distribution.dat`` — ``r_z_m``, ``q_y_Npm``, ``q_z_Npm``, ``m_x_Nmpm``
-    (optional ``R_m`` bookkeeping column)
-  - ``operational_load_timeseries.dat`` — long format ``t_s``, ``r_z_m``, load columns as above
+  - ``extreme_load_distribution.dat`` — ``spanwise_pos``, ``radial_pos``, ``q_y_Npm``, ``q_z_Npm``, ``m_x_Nmpm``
+  - ``operational_load_timeseries.dat`` — long format ``t_s``, ``spanwise_pos``, ``radial_pos``, load columns as above
 """
 
 from __future__ import annotations
@@ -14,29 +18,25 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import yaml
+
+from data_library.plot_inputs import read_columnar_dat
 
 
-def _interp_columns(zq: np.ndarray, ztab: np.ndarray, ytab: np.ndarray) -> np.ndarray:
-    zq = np.asarray(zq, dtype=np.float64).ravel()
-    zt = np.asarray(ztab, dtype=np.float64).ravel()
-    y = np.asarray(ytab, dtype=np.float64)
-    if y.ndim == 1:
-        y = y[:, None]
-    out = np.zeros((zq.shape[0], y.shape[1]), dtype=np.float64)
-    for j in range(y.shape[1]):
-        out[:, j] = np.interp(zq, zt, y[:, j])
-    return out
-
-
-def _span_grid_from_yaml(yaml_path: Path, n_span: int = 25) -> tuple[np.ndarray, np.ndarray]:
-    raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-    blade = raw["blade"]
-    ztab = np.asarray(blade["z_stations"], dtype=np.float64).ravel()
-    r_ref = np.asarray(blade["r_ref"], dtype=np.float64)
-    z = np.linspace(float(ztab[0]), float(ztab[-1]), n_span, dtype=np.float64)
-    r_node = _interp_columns(z, ztab, r_ref)
-    R = np.linalg.norm(r_node, axis=1)
+def _span_and_radius_from_blade_dat(spanwise_path: Path) -> tuple[np.ndarray, np.ndarray]:
+    if not spanwise_path.is_file():
+        raise FileNotFoundError(spanwise_path)
+    names, data = read_columnar_dat(spanwise_path)
+    cols = {n: data[:, i] for i, n in enumerate(names)}
+    if "spanwise_pos" not in cols or "radial_pos" not in cols:
+        raise KeyError(
+            f"Expected spanwise_pos and radial_pos in {spanwise_path!s}; have {list(cols)}."
+        )
+    z = np.asarray(cols["spanwise_pos"], dtype=np.float64).ravel()
+    R = np.asarray(cols["radial_pos"], dtype=np.float64).ravel()
+    if z.size < 2:
+        raise ValueError(f"Need at least two spanwise rows in {spanwise_path!s}.")
+    if z.shape != R.shape:
+        raise ValueError("spanwise_pos and radial_pos length mismatch.")
     return z, R
 
 
@@ -49,12 +49,13 @@ def _write_extreme(out_path: Path, z: np.ndarray, R: np.ndarray) -> None:
 
     lines = [
         "# Dummy extreme distributed loads (integrate to internal resultants downstream)",
-        "# Columns: r_z_m, R_m, q_y_Npm, q_z_Npm, m_x_Nmpm",
-        f"{'r_z_m':>12} {'R_m':>14} {'q_y_Npm':>16} {'q_z_Npm':>16} {'m_x_Nmpm':>16}",
+        "# Aligned with blade_spanwise_distribution.dat (spanwise_pos, radial_pos); q_*, m_* = demo root-high envelopes.",
+        "# Columns: spanwise_pos, radial_pos, q_y_Npm, q_z_Npm, m_x_Nmpm",
+        f"{'spanwise_pos':>14} {'radial_pos':>14} {'q_y_Npm':>16} {'q_z_Npm':>16} {'m_x_Nmpm':>16}",
     ]
     for i in range(z.size):
         lines.append(
-            f"{z[i]:12.6f} {R[i]:14.8f} {q_y[i]:16.3f} {q_z[i]:16.3f} {m_x[i]:16.3f}"
+            f"{z[i]:14.6f} {R[i]:14.8f} {q_y[i]:16.3f} {q_z[i]:16.3f} {m_x[i]:16.3f}"
         )
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -73,8 +74,9 @@ def _write_operational(out_path: Path, z: np.ndarray, R: np.ndarray) -> None:
 
     lines = [
         "# Dummy operational distributed loads (long format)",
-        "# Columns: t_s, r_z_m, R_m, q_y_Npm, q_z_Npm, m_x_Nmpm",
-        f"{'t_s':>10} {'r_z_m':>12} {'R_m':>14} {'q_y_Npm':>16} {'q_z_Npm':>16} {'m_x_Nmpm':>16}",
+        "# Aligned with blade_spanwise_distribution.dat (spanwise_pos, radial_pos); time-varying scale on demo amplitudes.",
+        "# Columns: t_s, spanwise_pos, radial_pos, q_y_Npm, q_z_Npm, m_x_Nmpm",
+        f"{'t_s':>10} {'spanwise_pos':>14} {'radial_pos':>14} {'q_y_Npm':>16} {'q_z_Npm':>16} {'m_x_Nmpm':>16}",
     ]
     for ti in t:
         p1 = np.sin(w1 * ti)
@@ -85,25 +87,25 @@ def _write_operational(out_path: Path, z: np.ndarray, R: np.ndarray) -> None:
         m_x_t = a_mx * (0.55 * p1 + 0.30 * p2 - 0.15 * np.sin(0.8 * w1 * ti + 1.1))
         for i in range(z.size):
             lines.append(
-                f"{ti:10.3f} {z[i]:12.6f} {R[i]:14.8f} "
+                f"{ti:10.3f} {z[i]:14.6f} {R[i]:14.8f} "
                 f"{q_y_t[i]:16.3f} {q_z_t[i]:16.3f} {m_x_t[i]:16.3f}"
             )
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> None:
-    root = Path(__file__).resolve().parents[1]
     data_dir = Path(__file__).resolve().parent
-    yaml_path = root / "example_blade.yaml"
+    span_path = data_dir / "blade_spanwise_distribution.dat"
 
-    z, R = _span_grid_from_yaml(yaml_path, n_span=25)
+    z, R = _span_and_radius_from_blade_dat(span_path)
     out_extreme = data_dir / "extreme_load_distribution.dat"
     out_operational = data_dir / "operational_load_timeseries.dat"
 
     _write_extreme(out_extreme, z, R)
     _write_operational(out_operational, z, R)
-    print(f"Wrote {out_extreme}")
-    print(f"Wrote {out_operational}")
+    print(f"Wrote {out_extreme} ({z.size} stations)")
+    print(f"Wrote {out_operational} ({z.size} stations x time)")
+    print(f"Span source: {span_path}")
 
 
 if __name__ == "__main__":

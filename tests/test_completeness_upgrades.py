@@ -3,9 +3,9 @@ from __future__ import annotations
 import tempfile
 import warnings
 from pathlib import Path
+import json
 
 import numpy as np
-import yaml
 
 import blade_precompute.global_beam_model as bm
 import blade_precompute.section_properties as sm
@@ -21,7 +21,7 @@ from blade_analysis.fatigue_damage.core.workflows import (
 from blade_precompute.section_properties.engine.geometry import SectionDefinition
 from blade_precompute.section_properties.engine.materials import IsotropicMaterial
 from blade_precompute.section_properties.io.external_results import ExternalSectionResultSolver
-from blade_precompute.section_properties.io.yaml_loader import load_section_from_yaml
+from blade_precompute.section_properties.io.section_loader import load_section_from_spec
 
 
 def test_external_section_solver_npz_and_metrics() -> None:
@@ -41,7 +41,7 @@ def test_external_section_solver_npz_and_metrics() -> None:
         assert m.rel_K7_fro < 1e-12
 
 
-def test_yaml_loader_warns_missing_strip_width() -> None:
+def test_section_loader_warns_missing_strip_width() -> None:
     doc = {
         "station_z": 0.0,
         "ply_library": {
@@ -72,11 +72,11 @@ def test_yaml_loader_warns_missing_strip_width() -> None:
         },
     }
     with tempfile.TemporaryDirectory() as d:
-        p = Path(d) / "sec.yaml"
-        p.write_text(yaml.safe_dump(doc), encoding="utf-8")
+        p = Path(d) / "sec.json"
+        p.write_text(json.dumps(doc), encoding="utf-8")
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _ = load_section_from_yaml(p)
+            _ = load_section_from_spec(p)
         assert any("strip_width_m" in str(item.message) for item in w)
 
 
@@ -111,7 +111,19 @@ def test_beam_model_supports_four_point_gauss() -> None:
         bcs=[bm.BoundaryCondition(0, tuple(range(7)))],
     )
     loads.nodal_F[-1, 0] = 25.0
-    res = bm.solve_static(model, loads, bm.SolverOptions(n_gauss=4, n_load_steps=3, max_iter=25))
+    res = bm.solve_static(
+        model,
+        loads,
+        bm.SolverOptions(
+            n_gauss=4,
+            n_load_steps=3,
+            max_iter=120,
+            tol_res=5e-3,
+            tol_res_rel=2e-4,
+            full_fd_hessian=False,
+            accept_stagnation=False,
+        ),
+    )
     assert res.converged
 
 
@@ -134,7 +146,6 @@ def test_beam_k7_rotation_override() -> None:
         z_stations=z,
         r_ref=np.zeros((n, 3)),
         kappa0=np.zeros((n, 3)),
-        tau0=np.zeros(n),
         chord=np.ones(n),
         twist=np.zeros(n),
         airfoil_profiles=[],
