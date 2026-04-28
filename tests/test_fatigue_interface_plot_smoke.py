@@ -35,7 +35,6 @@ def test_fatigue_plots_run():
     fr = FatigueResult(
         damage_composite=np.zeros((n_s, n_cp, n_ply)),
         damage_isotropic=np.zeros((n_s, n_iso)),
-        damage_delam=None,
         life_composite=np.full((n_s, n_cp, n_ply), 25.0),
         life_isotropic=np.full((n_s, n_iso), 25.0),
         max_damage_composite=0.0,
@@ -43,7 +42,7 @@ def test_fatigue_plots_run():
         worst_composite=(0, "skin", 0),
         worst_isotropic=(0, "al"),
         fatigue_critical_material="composite",
-        fi_static_tw=np.zeros((n_s, n_cp, n_ply)),
+        fi_static_hashin=np.zeros((n_s, n_cp, n_ply)),
         fi_static_vm=np.zeros((n_s, n_iso)),
         stress_component_used=0,
         goodman_applied=False,

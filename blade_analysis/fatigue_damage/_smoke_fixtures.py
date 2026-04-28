@@ -78,7 +78,6 @@ def _build_smoke_sections_and_cache() -> tuple[RecoveryCache, list[SectionDefini
     r_ref[:, 1] = 0.012 * (z / max(L, 1e-12)) ** 2
     kappa0 = np.zeros((n_s, 3), dtype=np.float64)
     kappa0[:, 1] = 0.0012
-    tau0 = np.zeros_like(z)
     chord = np.linspace(1.8, 1.2, n_s, dtype=np.float64)
     twist = np.zeros_like(z)
     web_positions = np.array([-0.32, 0.32], dtype=np.float64)
@@ -107,7 +106,6 @@ def _build_smoke_sections_and_cache() -> tuple[RecoveryCache, list[SectionDefini
         z_stations=z,
         r_ref=r_ref,
         kappa0=kappa0,
-        tau0=tau0,
         chord=chord,
         twist=twist,
         airfoil_profiles=[],
@@ -135,7 +133,6 @@ def _build_smoke_sections_and_cache() -> tuple[RecoveryCache, list[SectionDefini
         sections[0].subcomponents,
         bg.z_stations,
         nodal_R_stack=nodal_R,
-        enable_tier3=False,
     )
     return RecoveryCache(**storage.__dict__), sections
 

@@ -170,9 +170,9 @@ def plot_static_fi_vs_span(
         fig = ax.figure
 
     z = np.asarray(z_stations, dtype=np.float64).ravel()
-    tw = np.asarray(result.fi_static_tw, dtype=np.float64).max(axis=(1, 2))
+    h = np.asarray(result.fi_static_hashin, dtype=np.float64).max(axis=(1, 2))
     vm = np.asarray(result.fi_static_vm, dtype=np.float64).max(axis=1)
-    ax.plot(z, tw, "C0.-", label="max Tsai–Wu FI")
+    ax.plot(z, h, "C0.-", label="max Hashin FI")
     ax.plot(z, vm, "C1.-", label="max von Mises FI")
     ax.axhline(1.0, color="k", ls="--", lw=1, label="FI = 1")
     ax.set_xlabel("z [m]")

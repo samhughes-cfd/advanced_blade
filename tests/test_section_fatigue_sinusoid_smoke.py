@@ -38,7 +38,7 @@ def test_smoke_sinusoid_fatigue_finishes() -> None:
     assert np.isfinite(res.max_damage_composite)
     assert np.isfinite(res.max_damage_isotropic)
     assert res.damage_composite.shape[0] == int(z.size)
-    assert res.damage_composite.shape == res.fi_static_tw.shape
+    assert res.damage_composite.shape == res.fi_static_hashin.shape
     assert res.memory_mode in ("full", "incremental")
     assert res.rainflow_bins is not None
     assert res.rainflow_bins.counts_comp.shape[1] == int(z.size)

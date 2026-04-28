@@ -1,7 +1,7 @@
 """
 Miner damage accumulation (vectorised over bins and trailing axes).
 
-No FE / CLPT / Tsai–Wu in this module — damage from binned rainflow + S–N only.
+No FE / CLPT in this module — damage from binned rainflow + S–N only.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def miner_damage(
     Miner's rule ``D = sum_i n_i / N_f,i`` summed over axis 0 (bin axis).
 
     Trailing axes (station, subcomponent, ply, …) are fully vectorised.
-    No FE / CLPT / Tsai–Wu — S–N lookup only.
+    No FE / CLPT — S–N lookup only.
     """
     if apply_goodman:
         eff_ranges = sn_curve.apply_goodman(ranges, means)

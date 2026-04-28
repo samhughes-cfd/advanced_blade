@@ -25,7 +25,6 @@ class RainflowBins:
 class FatigueResult:
     damage_composite: NDArray[np.float64]  # (n_s, n_comp_sub, n_ply)
     damage_isotropic: NDArray[np.float64]  # (n_s, n_iso_sub)
-    damage_delam: NDArray[np.float64] | None
 
     life_composite: NDArray[np.float64]
     life_isotropic: NDArray[np.float64]
@@ -36,7 +35,7 @@ class FatigueResult:
     worst_isotropic: tuple[int, str]
     fatigue_critical_material: str
 
-    fi_static_tw: NDArray[np.float64]  # (n_s, n_comp_sub, n_ply)
+    fi_static_hashin: NDArray[np.float64]  # (n_s, n_comp_sub, n_ply)
     fi_static_vm: NDArray[np.float64]  # (n_s, n_iso_sub)
 
     stress_component_used: int

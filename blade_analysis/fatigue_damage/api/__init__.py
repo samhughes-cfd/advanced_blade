@@ -15,9 +15,9 @@ from ..core.workflows import (
     OperationalWorkflowSpec,
     validate_shared_calibration,
 )
+from ..core.types import FatigueResult
 from ..engine.pipeline import FatiguePipeline
 from ..engine.sn_curves import SNcurve
-from ..core.types import FatigueResult
 
 
 class FatigueAnalysis:
@@ -36,7 +36,6 @@ class FatigueAnalysis:
         stress_component: int = 0,
         n_range_bins: int = 128,
         apply_goodman: bool = False,
-        enable_tier3_delam: bool = False,
         design_life_years: float = 25.0,
     ) -> FatigueAnalysis:
         return cls(
@@ -47,7 +46,6 @@ class FatigueAnalysis:
                 stress_component=stress_component,
                 n_range_bins=n_range_bins,
                 apply_goodman=apply_goodman,
-                enable_tier3_delam=enable_tier3_delam,
                 design_life_years=design_life_years,
             )
         )

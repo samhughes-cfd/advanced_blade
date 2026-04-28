@@ -58,7 +58,7 @@ def resultants_to_stress_history(
     sigma_comp = np.empty((n_t, n_s, n_cp, n_ply, 3), dtype=np.float64)
     sigma_iso = np.empty((n_t, n_s, n_ip, 3), dtype=np.float64)
 
-    # No FE / CLPT / Tsai–Wu here — only fused L_rec / L_iso (precomputed).
+    # No FE / CLPT here — only fused L_rec / L_iso (precomputed).
     for i in range(0, n_t, chunk_size):
         sl = slice(i, i + chunk_size)
         chunk = R[sl]

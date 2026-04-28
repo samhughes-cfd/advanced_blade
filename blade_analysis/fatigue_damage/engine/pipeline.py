@@ -1,7 +1,7 @@
 """
 Fatigue pipeline: stress recovery → rainflow → Miner damage.
 
-No FE / CLPT / Tsai–Wu in the fatigue hot path; static FI uses cached Tsai–Wu / VM only.
+No FE / CLPT in the fatigue hot path; static FI uses cached Hashin / von Mises only.
 Rainflow is never applied to beam resultants — only to scalar stress histories.
 """
 
@@ -154,7 +154,6 @@ class FatiguePipeline:
         stress_component: int = 0,
         n_range_bins: int = 128,
         apply_goodman: bool = False,
-        enable_tier3_delam: bool = False,
         design_life_years: float = 25.0,
     ) -> None:
         self.cache = cache
@@ -163,12 +162,11 @@ class FatiguePipeline:
         self.stress_component = int(stress_component)
         self.n_range_bins = int(n_range_bins)
         self.apply_goodman = bool(apply_goodman)
-        self.enable_tier3_delam = bool(enable_tier3_delam)
         self.design_life_years = float(design_life_years)
 
     def run(self, history: ResultantHistory, memory_limit_mb: float = 512.0) -> FatigueResult:
         # Fatigue hot path: algebraic L_rec/L_iso only; rainflow on stresses; chunk time only.
-        # No FE, CLPT, or Tsai–Wu coefficient work here (static FI below uses cache.eval_* only).
+        # No FE or CLPT coefficient work here (static FI below uses cache.eval_* only).
         estimated_mb = stress_history_memory_mb(history, self.cache)
         n_t = int(history.time.shape[0])
         memory_mode = "incremental" if estimated_mb > float(memory_limit_mb) else "full"
@@ -268,23 +266,12 @@ class FatiguePipeline:
         t_star = np.argmax(norms, axis=0)
         n_s2 = R.shape[1]
         R_peak = np.stack([R[int(t_star[s]), s, :] for s in range(n_s2)], axis=0)[None, :, :]
-        fi_tw = self.cache.eval_tsai_wu_fi(R_peak)[0]
+        fi_h = self.cache.eval_hashin_fi(R_peak)[0]
         fi_vm = self.cache.eval_von_mises_fi(R_peak)[0]
-
-        damage_delam: NDArray[np.float64] | None = None
-        if self.enable_tier3_delam:
-            reason = "cache_disabled_tier3" if not self.cache.enable_tier3 else "not_implemented"
-            log_json(
-                logger,
-                logging.INFO,
-                "tier3_delam_skipped",
-                {"reason": reason, "cache_enable_tier3": bool(self.cache.enable_tier3)},
-            )
 
         result = FatigueResult(
             damage_composite=damage_c,
             damage_isotropic=damage_i,
-            damage_delam=damage_delam,
             life_composite=life_c,
             life_isotropic=life_i,
             max_damage_composite=max_dc,
@@ -292,7 +279,7 @@ class FatiguePipeline:
             worst_composite=worst_c,
             worst_isotropic=worst_i,
             fatigue_critical_material=critical,
-            fi_static_tw=fi_tw,
+            fi_static_hashin=fi_h,
             fi_static_vm=fi_vm,
             stress_component_used=self.stress_component,
             goodman_applied=self.apply_goodman,
