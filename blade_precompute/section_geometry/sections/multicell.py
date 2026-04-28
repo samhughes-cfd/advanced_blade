@@ -1,27 +1,30 @@
 """
 sections.multicell
 ==================
-MultiCellSection — generalised N-web, (N-1)-cell blade section builder.
+MultiCellSection — generalised N-web blade section with N+1 sandwich-core bays.
 
 Topology
 --------
 Given N web x-positions [x_0, x_1, …, x_{N-1}]:
 
     LE  |  x_0  |  x_1  | … |  x_{N-1}  |  TE
-        [ cell_0 ][ cell_1 ]   [ cell_{N-2} ]
+        [ bay_0 ][ bay_1 ] … [ bay_N ]
 
     - N ShearWeb objects (one per x-position)
     - 1 ContinuousSparCap upper + 1 lower (chord clip x_0 … x_{N-1}, then CSG
       subtract the web laminates so caps meet web walls flush)
-    - N-1 SandwichCore objects (cell_i bounded by web_i and web_{i+1})
-    - Optional TEInsert  (aft of x_{N-1})
-    - Optional LEInsert  (fore of x_0)
+    - N+1 SandwichCore objects: LE–first web, inter-web strips, last web–TE
+    - Optional TEInsert  (aft of a chord station; separate SDF from foam cores)
+    - Optional LEInsert  (nose region; separate SDF from foam cores)
+
+    End-bay ``SandwichCore`` regions do not subtract ``le_insert`` / ``te_insert``;
+    subtract those in a later revision if area integrals must be mutually exclusive.
 
 Component labels
 ----------------
     "web_0" … "web_{N-1}"
     "spar_cap_upper", "spar_cap_lower"
-    "core_0" … "core_{N-2}"
+    "core_0" … "core_N"   (N+1 labels when cores are built)
     "te_insert"   (if enabled)
     "le_insert"   (if enabled)
     "outer_skin"
@@ -78,6 +81,11 @@ from .subcomponents import (
 from ..geometry.csg import offset, subtract, intersect, union, union_all
 from ..geometry.section_axes import max_thickness_chord_x, pitch_axis_x_from_le
 from ..geometry.transforms import rotate_field
+from ..laminate_thickness_limits import (
+    clamp_skin_thickness_m,
+    clamp_spar_laminate_thickness_m,
+    clamp_web_thickness_m,
+)
 from ..structural import parse_fixed_cap_anchor, parse_structural_family
 
 
@@ -85,8 +93,16 @@ from ..structural import parse_fixed_cap_anchor, parse_structural_family
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _inner_y_at_x(airfoil_sdf, skin_thickness, x_query,
-                  y_search=None, n_samples=500):
+def _inner_y_at_x(
+    airfoil_sdf,
+    skin_thickness,
+    x_query,
+    y_search=None,
+    n_samples=240,
+    *,
+    phi_inner=None,
+    bisection_iters=10,
+):
     """Estimate the upper and lower inner-skin y-coordinates at a given x.
 
     Uses a dense 1-D scan along y at the queried x, finding the sign change
@@ -106,10 +122,11 @@ def _inner_y_at_x(airfoil_sdf, skin_thickness, x_query,
     if y_search is None:
         y_search = (-0.5, 0.5)
 
-    y_vals = np.linspace(y_search[0], y_search[1], n_samples)
+    y_vals = np.linspace(y_search[0], y_search[1], int(n_samples))
     x_vals = np.full_like(y_vals, x_query)
 
-    phi_inner = offset(airfoil_sdf, -skin_thickness / 2.0)
+    if phi_inner is None:
+        phi_inner = offset(airfoil_sdf, -skin_thickness / 2.0)
     phi_vals  = phi_inner(x_vals, y_vals)
 
     # Find sign changes (inner skin crossings)
@@ -124,8 +141,23 @@ def _inner_y_at_x(airfoil_sdf, skin_thickness, x_query,
 
     # Interpolate to find exact crossing y
     def _interp_crossing(idx):
-        y0, y1 = y_vals[idx], y_vals[idx + 1]
-        p0, p1 = phi_vals[idx], phi_vals[idx + 1]
+        y0, y1 = float(y_vals[idx]), float(y_vals[idx + 1])
+        p0, p1 = float(phi_vals[idx]), float(phi_vals[idx + 1])
+        # Refine bracket by bisection when there is a robust sign change.
+        if p0 == 0.0:
+            return y0
+        if p1 == 0.0:
+            return y1
+        if p0 * p1 < 0.0:
+            for _ in range(int(bisection_iters)):
+                ym = 0.5 * (y0 + y1)
+                pm = float(phi_inner(np.array([x_query]), np.array([ym]))[0])
+                if pm == 0.0:
+                    return ym
+                if p0 * pm < 0.0:
+                    y1, p1 = ym, pm
+                else:
+                    y0, p0 = ym, pm
         return y0 - p0 * (y1 - y0) / (p1 - p0 + 1e-30)
 
     y_crossings = sorted([_interp_crossing(i) for i in crossings])
@@ -139,7 +171,7 @@ def _inner_y_at_x(airfoil_sdf, skin_thickness, x_query,
 # ---------------------------------------------------------------------------
 
 class MultiCellSection:
-    """N-web, (N-1)-cell generalised blade section.
+    """N-web generalised blade section (N+1 structural bays, N+1 foam cores when enabled).
 
     Parameters
     ----------
@@ -149,14 +181,20 @@ class MultiCellSection:
         Chordwise x-coordinates of each web (N values, must be sorted).
     web_thickness : float or list of float
         Web laminate thickness. Scalar → uniform across all webs.
+        Values below ``MIN_REALISTIC_WEB_LAMINATE_THICKNESS_M`` are raised
+        (see :mod:`blade_precompute.section_geometry.laminate_thickness_limits`).
     web_alignment : str or list of str
         "chord_normal" or "flapwise", per web or uniform.
     cap_height : float or tuple (float, float)
         Spar cap laminate height (depth from inner skin).
         Scalar → same for upper and lower.
         Tuple → (upper_height, lower_height).
+        Values below ``MIN_REALISTIC_SPAR_LAMINATE_THICKNESS_M`` are raised
+        (see :mod:`blade_precompute.section_geometry.laminate_thickness_limits`).
     skin_thickness : float
-        Outer skin laminate thickness.
+        Outer skin laminate thickness. Values below
+        ``MIN_REALISTIC_SKIN_LAMINATE_THICKNESS_M`` are raised
+        (see :mod:`blade_precompute.section_geometry.laminate_thickness_limits`).
     twist_angle : float
         Section twist angle in radians (CCW positive, LE rotating upward).
         Applied to flapwise-aligned webs and optionally to the spar caps.
@@ -222,6 +260,9 @@ class MultiCellSection:
             if len(web_thicknesses) != N:
                 raise ValueError(f"web_thickness must be scalar or length {N}.")
 
+        web_thicknesses = [clamp_web_thickness_m(t) for t in web_thicknesses]
+        skin_thickness = clamp_skin_thickness_m(skin_thickness)
+
         # Web alignment per web
         if isinstance(web_alignment, str):
             web_alignments = [web_alignment] * N
@@ -235,6 +276,8 @@ class MultiCellSection:
             cap_h_upper = cap_h_lower = float(cap_height)
         else:
             cap_h_upper, cap_h_lower = float(cap_height[0]), float(cap_height[1])
+        cap_h_upper = clamp_spar_laminate_thickness_m(cap_h_upper)
+        cap_h_lower = clamp_spar_laminate_thickness_m(cap_h_lower)
 
         self._af          = airfoil_sdf
         self._skin_t      = float(skin_thickness)
@@ -281,11 +324,16 @@ class MultiCellSection:
         # ------------------------------------------------------------------
         # Web anchor points
         # ------------------------------------------------------------------
+        phi_inner_ref = offset(airfoil_sdf, -skin_thickness / 2.0)
         if web_y_coords is None:
             anchors = []
             for x in xs:
                 y_top, y_bot = _inner_y_at_x(
-                    airfoil_sdf, skin_thickness, x, y_search=y_search
+                    airfoil_sdf,
+                    skin_thickness,
+                    x,
+                    y_search=y_search,
+                    phi_inner=phi_inner_ref,
                 )
                 anchors.append((y_top, y_bot))
         else:
@@ -305,19 +353,87 @@ class MultiCellSection:
             c_station = None
 
         # ------------------------------------------------------------------
+        # Flapwise web S-frame inputs from B-frame intent
+        # ------------------------------------------------------------------
+        # For ``alignment="flapwise"``, the web SDF must be vertical in the
+        # global B-frame at ``x_b = x_b_web`` and clipped by the **B-frame**
+        # inner skin (the same surface that bounds the cap and outer skin
+        # after the section's global +twist rotation). The previous
+        # implementation built the capsule + clip in the chord (S) frame and
+        # counter-rotated the web SDF so that the S→B chain ended up as a
+        # pure translation — but a translation does not equal a rotation, so
+        # the translated S-frame ``inner_af`` clip landed off the actual
+        # B-frame inner skin and the web fell short of the skin/cap (gaps
+        # of 5–25 mm at large twist; see H20).
+        #
+        # Fix: feed ``ShearWeb`` S-frame inputs that are the **inverse
+        # rotation** of the desired B-frame vertical axis. The S-frame
+        # capsule axis is therefore tilted, and the chord-frame
+        # ``inner_af`` clip used inside ``ShearWeb`` is the same surface
+        # that — after the section's global +twist rotation — becomes the
+        # B-frame inner skin. The web then meets the skin/cap exactly.
+        cos_t = float(np.cos(float(twist_angle)))
+        sin_t = float(np.sin(float(twist_angle)))
+        flapwise_present = any(a == "flapwise" for a in web_alignments)
+        needs_b_frame_lookup = flapwise_present and abs(float(twist_angle)) > 1e-10
+        phi_inner_b = None
+        y_search_b = y_search
+        if needs_b_frame_lookup:
+            phi_inner_b = rotate_field(phi_inner_ref, float(twist_angle))
+            verts = getattr(airfoil_sdf, "vertices", None)
+            if verts is not None:
+                arr = np.asarray(verts, dtype=float)
+                y_b_vals = sin_t * arr[:, 0] + cos_t * arr[:, 1]
+                y_search_b = (
+                    float(y_b_vals.min()) - 0.1,
+                    float(y_b_vals.max()) + 0.1,
+                )
+            elif y_search_b is None:
+                y_search_b = (-1.5, 1.5)
+
+        # ------------------------------------------------------------------
         # Shear webs
         # ------------------------------------------------------------------
         web_sdfs = []
         for i, (x, t, align, (y_top, y_bot)) in enumerate(
             zip(xs, web_thicknesses, web_alignments, anchors)
         ):
+            if align == "flapwise" and needs_b_frame_lookup:
+                # B-frame x of this flapwise web (preserved exactly from the
+                # legacy translation-equivalent placement): the chord-frame
+                # web at ``(x, mid_y)`` lands at ``x_b = cos·x − sin·mid_y``
+                # after the global +twist rotation. We use the chord-frame
+                # auto-anchor mid (or user-provided y_top/y_bot mid) only to
+                # compute ``x_b_web``; the web's actual extent is then
+                # dictated by the B-frame inner skin at ``x_b_web``.
+                mid_y_init = 0.5 * (y_top + y_bot)
+                x_b_web = cos_t * x - sin_t * mid_y_init
+                y_b_top, y_b_bot = _inner_y_at_x(
+                    None,
+                    None,
+                    x_b_web,
+                    y_search=y_search_b,
+                    phi_inner=phi_inner_b,
+                )
+                # Inverse-rotate (x_b_web, y_b_top) and (x_b_web, y_b_bot)
+                # back to the S-frame: R(-twist)·(x_b, y_b).
+                x_top_S = cos_t * x_b_web + sin_t * y_b_top
+                y_top_S = -sin_t * x_b_web + cos_t * y_b_top
+                x_bot_S = cos_t * x_b_web + sin_t * y_b_bot
+                y_bot_S = -sin_t * x_b_web + cos_t * y_b_bot
+            else:
+                x_top_S = x
+                x_bot_S = x
+                y_top_S = y_top
+                y_bot_S = y_bot
+
             web = ShearWeb(
                 airfoil_sdf    = airfoil_sdf,
                 skin_thickness = skin_thickness,
-                x_top          = x,
-                y_top          = y_top,
-                x_bot          = x,
-                y_bot          = y_bot,
+                x_top          = x_top_S,
+                y_top          = y_top_S,
+                x_bot          = x_bot_S,
+                y_bot          = y_bot_S,
                 thickness      = t,
                 alignment      = align,
                 twist_angle    = float(twist_angle),
@@ -332,15 +448,28 @@ class MultiCellSection:
         sf = self._structural_family
         cap_upper = None
         cap_lower = None
+        # Track the un-subtracted cap subcomponents so external consumers
+        # (e.g. shell-stage adapters) can recover their analytical
+        # x_start/x_end/cap_height/surface attributes after the web-volume
+        # subtraction step below replaces the entries in ``self._components``
+        # with opaque CSG callables.
+        spar_cap_components_unrotated: dict[str, Any] = {}
 
         if sf == "D":
             x_cap_start = xs[0]
             x_cap_end = xs[-1]
             cap_strip = None
             if all_flapwise and c_station is not None:
-                cap_strip = _parallel_web_strip_clip(
-                    _nx, _ny, c_station[0], c_station[-1]
-                )
+                d_stat = abs(float(c_station[0]) - float(c_station[-1]))
+                chord_scale = float(getattr(airfoil_sdf, "chord", 1.0))
+                # Single flapwise web (N == 1): first/last ``c_station`` coincide,
+                # so the parallel-line strip has zero width, ``strip_clip`` never
+                # goes negative on sampled cap arcs, and ``midline_polyline`` can
+                # return empty (breaks shell mesh). Fall back to chordwise clip.
+                if d_stat > 1e-9 * max(chord_scale, 1e-9):
+                    cap_strip = _parallel_web_strip_clip(
+                        _nx, _ny, c_station[0], c_station[-1]
+                    )
             cap_upper = ContinuousSparCap(
                 airfoil_sdf=airfoil_sdf,
                 skin_thickness=skin_thickness,
@@ -361,6 +490,8 @@ class MultiCellSection:
                 twist_angle=0.0,
                 strip_clip=cap_strip,
             )
+            spar_cap_components_unrotated["spar_cap_upper"] = cap_upper
+            spar_cap_components_unrotated["spar_cap_lower"] = cap_lower
             if web_sdfs:
                 _wu = union_all(web_sdfs)
                 cap_upper = subtract(cap_upper, _wu)
@@ -376,7 +507,11 @@ class MultiCellSection:
             strip_b = None
             if all_flapwise and c_station is not None:
                 y_tc, y_bc = _inner_y_at_x(
-                    airfoil_sdf, skin_thickness, x_c, y_search=y_search
+                    airfoil_sdf,
+                    skin_thickness,
+                    x_c,
+                    y_search=y_search,
+                    phi_inner=phi_inner_ref,
                 )
                 cy_c = 0.5 * (y_tc + y_bc)
                 c_lo = web_station_projection(_nx, _ny, x_lo, cy_c)
@@ -400,6 +535,8 @@ class MultiCellSection:
                 "lower",
                 strip_clip=strip_b,
             )
+            spar_cap_components_unrotated["spar_cap_upper"] = cap_upper
+            spar_cap_components_unrotated["spar_cap_lower"] = cap_lower
             if web_sdfs:
                 _wu = union_all(web_sdfs)
                 cap_upper = subtract(cap_upper, _wu)
@@ -438,6 +575,9 @@ class MultiCellSection:
                         strip_clip=strip_c,
                     )
                 )
+            for i, (cu, cl) in enumerate(zip(caps_u, caps_l)):
+                spar_cap_components_unrotated[f"spar_cap_upper_{i}"] = cu
+                spar_cap_components_unrotated[f"spar_cap_lower_{i}"] = cl
             cap_upper = union_all(caps_u)
             cap_lower = union_all(caps_l)
             if web_sdfs:
@@ -450,48 +590,31 @@ class MultiCellSection:
             self._components["spar_cap_upper"] = cap_upper
             self._components["spar_cap_lower"] = cap_lower
 
+        # Expose the un-subtracted spar-cap subcomponents for analytical
+        # consumers (shell-stage adapter). Keys mirror the labels in
+        # ``self._components`` for sf D, with per-web suffixes for sf C.
+        self._spar_cap_components_unrotated = dict(spar_cap_components_unrotated)
+
         laminates_for_core = (
             list(web_sdfs) if sf == "A" else [cap_upper, cap_lower] + web_sdfs
         )
 
         # ------------------------------------------------------------------
-        # Per-cell sandwich cores
+        # Sandwich cores: N+1 bays (LE–web_0, inter-web, web_{N-1}–TE)
         # ------------------------------------------------------------------
-        if core_enabled and N >= 2:
+        if core_enabled and N >= 1:
             laminates = laminates_for_core
-            for i in range(N - 1):
+            n_bays = N + 1
+            for k in range(n_bays):
                 if all_flapwise and c_station is not None:
-                    core_strip = _parallel_web_strip_clip(
-                        _nx, _ny, c_station[i], c_station[i + 1]
-                    )
-                    core = SandwichCore(
-                        airfoil_sdf    = airfoil_sdf,
-                        skin_thickness = skin_thickness,
-                        exclusion_sdfs = laminates,
-                        strip_clip     = core_strip,
-                    )
-                else:
-                    core = SandwichCore(
-                        airfoil_sdf    = airfoil_sdf,
-                        skin_thickness = skin_thickness,
-                        exclusion_sdfs = laminates,
-                        x_start        = xs[i],
-                        x_end          = xs[i + 1],
-                    )
-                self._components[f"core_{i}"] = core
-
-        elif core_enabled and N == 1:
-            # Single-web: two half-cells (fore and aft of web)
-            laminates = laminates_for_core
-            for i, (x_s, x_e, suffix) in enumerate([
-                (None, xs[0], "fore"),
-                (xs[0], None, "aft"),
-            ]):
-                if all_flapwise and c_station is not None:
-                    if suffix == "fore":
+                    if k == 0:
                         sclip = _parallel_web_half_lt(_nx, _ny, c_station[0])
+                    elif k == n_bays - 1:
+                        sclip = _parallel_web_half_gt(_nx, _ny, c_station[-1])
                     else:
-                        sclip = _parallel_web_half_gt(_nx, _ny, c_station[0])
+                        sclip = _parallel_web_strip_clip(
+                            _nx, _ny, c_station[k - 1], c_station[k]
+                        )
                     core = SandwichCore(
                         airfoil_sdf    = airfoil_sdf,
                         skin_thickness = skin_thickness,
@@ -499,6 +622,12 @@ class MultiCellSection:
                         strip_clip     = sclip,
                     )
                 else:
+                    if k == 0:
+                        x_s, x_e = None, xs[0]
+                    elif k == n_bays - 1:
+                        x_s, x_e = xs[-1], None
+                    else:
+                        x_s, x_e = xs[k - 1], xs[k]
                     core = SandwichCore(
                         airfoil_sdf    = airfoil_sdf,
                         skin_thickness = skin_thickness,
@@ -506,7 +635,7 @@ class MultiCellSection:
                         x_start        = x_s,
                         x_end          = x_e,
                     )
-                self._components[f"core_{suffix}"] = core
+                self._components[f"core_{k}"] = core
 
         # ------------------------------------------------------------------
         # TE insert
@@ -546,6 +675,9 @@ class MultiCellSection:
         # this global +twist_angle rotation it ends up vertical (flapwise)
         # in the B-frame — the correct physical behaviour.
         # ------------------------------------------------------------------
+        self._components_unrotated = dict(self._components)
+        self._skin_outer_boundary_unrotated_sdf = skin_outer_sdf
+        self._skin_inner_boundary_unrotated_sdf = skin_inner_sdf
         if abs(self._twist) > 1e-10:
             skin_outer_sdf = rotate_field(skin_outer_sdf, self._twist)
             skin_inner_sdf = rotate_field(skin_inner_sdf, self._twist)
@@ -611,12 +743,12 @@ class MultiCellSection:
 
     @classmethod
     def twin_web(cls, airfoil_sdf, x_fore=0.20, x_aft=0.50, **kwargs):
-        """Two-web, single-cell box-spar."""
+        """Two webs, three-core bay partition (LE–web, inter-web, web–TE), box-spar."""
         return cls(airfoil_sdf, web_x_positions=[x_fore, x_aft], **kwargs)
 
     @classmethod
     def torsion_box(cls, airfoil_sdf, x_fore=0.15, x_mid=0.35, x_aft=0.55, **kwargs):
-        """Three-web torsion box (two cells)."""
+        """Three webs, four full-span foam bays."""
         return cls(airfoil_sdf,
                    web_x_positions=[x_fore, x_mid, x_aft], **kwargs)
 
@@ -630,7 +762,11 @@ class MultiCellSection:
 
     @property
     def n_cells(self):
-        return max(0, self.n_webs - 1)
+        """Structural shear / foam bay count: ``n_webs + 1`` (matches system layout ``n_cells``).
+
+        Reported for topology; independent of whether ``core_enabled`` built the SDFs.
+        """
+        return self.n_webs + 1
 
     def __repr__(self):
         return (

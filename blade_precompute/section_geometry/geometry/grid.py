@@ -25,6 +25,12 @@ Usage
 """
 
 import numpy as np
+try:
+    import contourpy
+    _HAS_CONTOURPY = True
+except Exception:  # pragma: no cover - optional fallback
+    contourpy = None
+    _HAS_CONTOURPY = False
 
 
 class SDFGrid:
@@ -45,6 +51,7 @@ class SDFGrid:
         self.ny = X.shape[0]
         self.dx = float(X[0, 1] - X[0, 0]) if self.nx > 1 else 1.0
         self.dy = float(Y[1, 0] - Y[0, 0]) if self.ny > 1 else 1.0
+        self._rotated_coords_cache: dict[tuple[float, float, float], tuple[np.ndarray, np.ndarray]] = {}
 
     # ------------------------------------------------------------------
     # Constructors
@@ -93,6 +100,26 @@ class SDFGrid:
         """
         return np.asarray(sdf_callable(self.X, self.Y), dtype=float)
 
+    def rotated_coords(self, angle, cx=0.0, cy=0.0):
+        """Return query coordinates inverse-rotated by ``angle`` around ``(cx, cy)``."""
+        key = (float(angle), float(cx), float(cy))
+        cached = self._rotated_coords_cache.get(key)
+        if cached is not None:
+            return cached
+        cos_a = np.cos(-float(angle))
+        sin_a = np.sin(-float(angle))
+        xr = self.X - float(cx)
+        yr = self.Y - float(cy)
+        xp = cos_a * xr - sin_a * yr + float(cx)
+        yp = sin_a * xr + cos_a * yr + float(cy)
+        self._rotated_coords_cache[key] = (xp, yp)
+        return xp, yp
+
+    def rotated_eval(self, sdf_callable, angle, cx=0.0, cy=0.0):
+        """Evaluate ``sdf_callable`` on inverse-rotated query coordinates."""
+        xp, yp = self.rotated_coords(angle, cx=cx, cy=cy)
+        return np.asarray(sdf_callable(xp, yp), dtype=float)
+
     def gradient(self, phi):
         """Central-difference gradient of a grid-sampled field.
 
@@ -136,25 +163,21 @@ class SDFGrid:
         -------
         segments : list of ndarray, shape (N, 2)
         """
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
-        cs = ax.contour(self.X, self.Y, phi, levels=[0.0])
-        segments = []
-        # Matplotlib ≥3.8: QuadContourSet exposes get_paths(); .collections was removed.
-        for path in cs.get_paths():
-            v = path.vertices
-            segments.append(v.copy())
-        plt.close(fig)
-        return segments
+        return self.level_set(phi, level=0.0)
 
     def level_set(self, phi, level=0.0):
         """Extract an arbitrary level-set contour."""
+        if _HAS_CONTOURPY:
+            x = np.asarray(self.X[0, :], dtype=float)
+            y = np.asarray(self.Y[:, 0], dtype=float)
+            z = np.asarray(phi, dtype=float)
+            cg = contourpy.contour_generator(x=x, y=y, z=z, name="serial")
+            raw_segments = cg.lines(float(level))
+            return [np.asarray(seg, dtype=float).copy() for seg in raw_segments if len(seg) >= 2]
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
         cs = ax.contour(self.X, self.Y, phi, levels=[level])
-        segments = []
-        for path in cs.get_paths():
-            segments.append(path.vertices.copy())
+        segments = [path.vertices.copy() for path in cs.get_paths()]
         plt.close(fig)
         return segments
 
@@ -188,8 +211,7 @@ class SDFGrid:
         -------
         float
         """
-        mask = phi < 0.0
-        return float(mask.sum()) * self.dx * self.dy
+        return float(self.section_properties_fused(phi)["area"])
 
     def centroid(self, phi):
         """Centroid of the region phi < 0.
@@ -198,13 +220,8 @@ class SDFGrid:
         -------
         cx, cy : float
         """
-        mask = (phi < 0.0).astype(float)
-        A  = mask.sum()
-        if A == 0:
-            return float("nan"), float("nan")
-        cx = (mask * self.X).sum() / A
-        cy = (mask * self.Y).sum() / A
-        return float(cx), float(cy)
+        props = self.section_properties_fused(phi)
+        return float(props["cx"]), float(props["cy"])
 
     def second_moments(self, phi):
         """Second moments of area (Ixx, Iyy, Ixy) about the centroid.
@@ -214,34 +231,57 @@ class SDFGrid:
         Ixx, Iyy, Ixy : float
             Ixx = ∫∫ y² dA,  Iyy = ∫∫ x² dA,  Ixy = ∫∫ xy dA
         """
-        cx, cy = self.centroid(phi)
-        mask   = (phi < 0.0).astype(float)
-        dA     = self.dx * self.dy
+        props = self.section_properties_fused(phi)
+        return float(props["Ixx"]), float(props["Iyy"]), float(props["Ixy"])
+
+    def section_properties_fused(self, phi):
+        """Return section properties for ``phi < 0`` in a single pass.
+
+        Keys: area, cx, cy, Ixx, Iyy, Ixy, r_gyr_x, r_gyr_y
+        """
+        mask = np.asarray(phi < 0.0, dtype=float)
+        dA = self.dx * self.dy
+        area_cells = float(mask.sum())
+        A = area_cells * dA
+        if area_cells == 0.0:
+            return {
+                "area": 0.0,
+                "cx": float("nan"),
+                "cy": float("nan"),
+                "Ixx": float("nan"),
+                "Iyy": float("nan"),
+                "Ixy": float("nan"),
+                "r_gyr_x": float("nan"),
+                "r_gyr_y": float("nan"),
+            }
+
+        sum_x = float((mask * self.X).sum())
+        sum_y = float((mask * self.Y).sum())
+        cx = sum_x / area_cells
+        cy = sum_y / area_cells
+
         xr = self.X - cx
         yr = self.Y - cy
         Ixx = float((mask * yr**2).sum() * dA)
         Iyy = float((mask * xr**2).sum() * dA)
         Ixy = float((mask * xr * yr).sum() * dA)
-        return Ixx, Iyy, Ixy
+        return {
+            "area": A,
+            "cx": float(cx),
+            "cy": float(cy),
+            "Ixx": Ixx,
+            "Iyy": Iyy,
+            "Ixy": Ixy,
+            "r_gyr_x": float(np.sqrt(Ixx / A)) if A > 0 else float("nan"),
+            "r_gyr_y": float(np.sqrt(Iyy / A)) if A > 0 else float("nan"),
+        }
 
     def section_properties(self, phi):
         """Return a dict of section properties for the region phi < 0.
 
         Keys: area, cx, cy, Ixx, Iyy, Ixy, r_gyr_x, r_gyr_y
         """
-        A  = self.area(phi)
-        cx, cy = self.centroid(phi)
-        Ixx, Iyy, Ixy = self.second_moments(phi)
-        return {
-            "area":    A,
-            "cx":      cx,
-            "cy":      cy,
-            "Ixx":     Ixx,
-            "Iyy":     Iyy,
-            "Ixy":     Ixy,
-            "r_gyr_x": float(np.sqrt(Ixx / A)) if A > 0 else float("nan"),
-            "r_gyr_y": float(np.sqrt(Iyy / A)) if A > 0 else float("nan"),
-        }
+        return self.section_properties_fused(phi)
 
     # ------------------------------------------------------------------
     # Representation

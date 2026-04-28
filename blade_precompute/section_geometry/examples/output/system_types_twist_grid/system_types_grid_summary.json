@@ -11,7 +11,7 @@
   "structural_naming": {
     "pattern": "SystemType{X}{Y}-{Z}",
     "X": "web count",
-    "Y": "spar family (this script: continuous caps \u21d2 C for X\u22652; single web labeled 1B per matrix)",
+    "Y": "spar family (this script: continuous box caps \u21d2 D for all panels; matches registry keys 1D-*, 2D-*, \u2026)",
     "Z": "CN = chord_normal alignment, F = flapwise",
     "chord_fraction_presets_ABC": "Only web chord positions \u2014 not structural Y."
   },
@@ -22,7 +22,7 @@
   },
   "system_presets": {
     "A": "uniform i/(n+1)",
-    "B": "fixed / legacy-style chord fractions",
+    "B": "fixed chord fractions (registry-style stations)",
     "C": "wide-spread chord fractions"
   },
   "include_component_zero_contours": false,
@@ -31,7 +31,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType1B-CN",
+      "structural_system_type": "SystemType1D-CN",
       "chord_fraction_preset": "A",
       "system": "A",
       "n_webs": 1,
@@ -56,7 +56,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType2C-CN",
+      "structural_system_type": "SystemType2D-CN",
       "chord_fraction_preset": "A",
       "system": "A",
       "n_webs": 2,
@@ -83,7 +83,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType3C-CN",
+      "structural_system_type": "SystemType3D-CN",
       "chord_fraction_preset": "A",
       "system": "A",
       "n_webs": 3,
@@ -114,7 +114,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType4C-CN",
+      "structural_system_type": "SystemType4D-CN",
       "chord_fraction_preset": "A",
       "system": "A",
       "n_webs": 4,
@@ -149,7 +149,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType1B-CN",
+      "structural_system_type": "SystemType1D-CN",
       "chord_fraction_preset": "B",
       "system": "B",
       "n_webs": 1,
@@ -174,7 +174,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType2C-CN",
+      "structural_system_type": "SystemType2D-CN",
       "chord_fraction_preset": "B",
       "system": "B",
       "n_webs": 2,
@@ -201,7 +201,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType3C-CN",
+      "structural_system_type": "SystemType3D-CN",
       "chord_fraction_preset": "B",
       "system": "B",
       "n_webs": 3,
@@ -232,7 +232,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType4C-CN",
+      "structural_system_type": "SystemType4D-CN",
       "chord_fraction_preset": "B",
       "system": "B",
       "n_webs": 4,
@@ -267,7 +267,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType1B-CN",
+      "structural_system_type": "SystemType1D-CN",
       "chord_fraction_preset": "C",
       "system": "C",
       "n_webs": 1,
@@ -292,7 +292,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType2C-CN",
+      "structural_system_type": "SystemType2D-CN",
       "chord_fraction_preset": "C",
       "system": "C",
       "n_webs": 2,
@@ -319,7 +319,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType3C-CN",
+      "structural_system_type": "SystemType3D-CN",
       "chord_fraction_preset": "C",
       "system": "C",
       "n_webs": 3,
@@ -350,7 +350,7 @@
     {
       "alignment": "chord_normal",
       "panel_title": "Chord-normal web axis",
-      "structural_system_type": "SystemType4C-CN",
+      "structural_system_type": "SystemType4D-CN",
       "chord_fraction_preset": "C",
       "system": "C",
       "n_webs": 4,
@@ -385,7 +385,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType1B-F",
+      "structural_system_type": "SystemType1D-F",
       "chord_fraction_preset": "A",
       "system": "A",
       "n_webs": 1,
@@ -410,7 +410,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType2C-F",
+      "structural_system_type": "SystemType2D-F",
       "chord_fraction_preset": "A",
       "system": "A",
       "n_webs": 2,
@@ -437,7 +437,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType3C-F",
+      "structural_system_type": "SystemType3D-F",
       "chord_fraction_preset": "A",
       "system": "A",
       "n_webs": 3,
@@ -468,7 +468,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType4C-F",
+      "structural_system_type": "SystemType4D-F",
       "chord_fraction_preset": "A",
       "system": "A",
       "n_webs": 4,
@@ -503,7 +503,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType1B-F",
+      "structural_system_type": "SystemType1D-F",
       "chord_fraction_preset": "B",
       "system": "B",
       "n_webs": 1,
@@ -528,7 +528,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType2C-F",
+      "structural_system_type": "SystemType2D-F",
       "chord_fraction_preset": "B",
       "system": "B",
       "n_webs": 2,
@@ -555,7 +555,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType3C-F",
+      "structural_system_type": "SystemType3D-F",
       "chord_fraction_preset": "B",
       "system": "B",
       "n_webs": 3,
@@ -586,7 +586,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType4C-F",
+      "structural_system_type": "SystemType4D-F",
       "chord_fraction_preset": "B",
       "system": "B",
       "n_webs": 4,
@@ -621,7 +621,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType1B-F",
+      "structural_system_type": "SystemType1D-F",
       "chord_fraction_preset": "C",
       "system": "C",
       "n_webs": 1,
@@ -646,7 +646,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType2C-F",
+      "structural_system_type": "SystemType2D-F",
       "chord_fraction_preset": "C",
       "system": "C",
       "n_webs": 2,
@@ -673,7 +673,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType3C-F",
+      "structural_system_type": "SystemType3D-F",
       "chord_fraction_preset": "C",
       "system": "C",
       "n_webs": 3,
@@ -704,7 +704,7 @@
     {
       "alignment": "flapwise",
       "panel_title": "Flapwise web axis",
-      "structural_system_type": "SystemType4C-F",
+      "structural_system_type": "SystemType4D-F",
       "chord_fraction_preset": "C",
       "system": "C",
       "n_webs": 4,

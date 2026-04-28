@@ -10,6 +10,7 @@ import tempfile
 import os
 
 from blade_precompute.section_geometry.engine.implicit_section_geometry import AirfoilSDF
+from blade_precompute.section_geometry.geometry.naca_parametric import airfoil_vertices_from_spanwise
 
 
 @pytest.fixture
@@ -103,6 +104,32 @@ class TestGridEval:
         X, Y = np.meshgrid(x, y)
         phi = naca0012(X, Y)
         assert phi.shape == (30, 50)
+
+
+class TestNacaSeriesDispatch:
+    def test_series_four_matches_from_naca_string(self):
+        a = AirfoilSDF.from_naca("2412", n_points=200, chord=1.0)
+        b = AirfoilSDF.from_naca_series(4, 2, 4, 12, n_points=200, chord=1.0)
+        np.testing.assert_allclose(a.vertices, b.vertices, rtol=0, atol=1e-9)
+
+    def test_series_five_digit_builds(self):
+        af = AirfoilSDF.from_naca_series(5, 2, 30, 12, n_points=200, chord=1.0)
+        assert af.vertices.shape[0] >= 100
+        xc, t = af.thickness_distribution(n_points=80)
+        assert float(np.max(t)) > 0.10
+
+    def test_series_six_63_415_thickness_scale(self):
+        af = AirfoilSDF.from_naca_series(6, 63, 4, 15, n_points=200, chord=1.0)
+        xc, t = af.thickness_distribution(n_points=120)
+        assert 0.12 < float(np.max(t)) < 0.19
+
+    def test_spanwise_airfoil_cache_returns_independent_arrays(self):
+        a = airfoil_vertices_from_spanwise(4, 2, 4, 12, n_points=120, chord=1.0)
+        b = airfoil_vertices_from_spanwise(4, 2, 4, 12, n_points=120, chord=1.0)
+        assert a is not b
+        a[0, 0] = 999.0
+        c = airfoil_vertices_from_spanwise(4, 2, 4, 12, n_points=120, chord=1.0)
+        assert c[0, 0] != 999.0
 
 
 class TestInputValidation:

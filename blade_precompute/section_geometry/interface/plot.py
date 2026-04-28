@@ -8,6 +8,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
+from ..engine.eval_cache import SectionEvalCache
+
 
 # Colour palette for subcomponents
 _COMPONENT_COLORS = {
@@ -43,7 +45,7 @@ def _component_color(label):
             idx = int(suffix)
             return _CORE_COLORS[idx % len(_CORE_COLORS)]
         except ValueError:
-            # Named core variants (e.g. core_fore/core_aft) are handled here.
+            # Legacy single-web names (core_fore/core_aft) in older exports.
             return _CORE_COLORS[0]
     return _COMPONENT_COLORS.get(label, _DEFAULT_COLOR)
 
@@ -97,7 +99,7 @@ def plot_sdf_field(phi, grid, ax=None, title="SDF field",
 
 def plot_section(section_geometry, grid, ax=None, alpha=0.45,
                  show_airfoil=False, title="Blade section geometry",
-                 show_legend=True):
+                 show_legend=True, eval_cache: SectionEvalCache | None = None):
     """Plot all subcomponents as filled colour patches on one axis.
 
     Parameters
@@ -125,7 +127,12 @@ def plot_section(section_geometry, grid, ax=None, alpha=0.45,
         fig = ax.figure
 
     for label in section_geometry:
-        phi   = grid.eval(section_geometry[label])
+        if eval_cache is None:
+            phi = grid.eval(section_geometry[label])
+        else:
+            phi = eval_cache.get_or_eval_with_owner(
+                label, section_geometry[label], grid, owner=section_geometry
+            )
         color = _component_color(label)
         # Filled region where phi < 0
         ax.contourf(grid.X, grid.Y, phi,
@@ -136,7 +143,12 @@ def plot_section(section_geometry, grid, ax=None, alpha=0.45,
                    levels=[0.0], colors=[color], linewidths=1.0)
 
     if show_airfoil:
-        phi_af = grid.eval(section_geometry.airfoil)
+        if eval_cache is None:
+            phi_af = grid.eval(section_geometry.airfoil)
+        else:
+            phi_af = eval_cache.get_or_eval_with_owner(
+                "_airfoil", section_geometry.airfoil, grid, owner=None
+            )
         ax.contour(grid.X, grid.Y, phi_af,
                    levels=[0.0], colors=["k"], linewidths=2.0)
 
@@ -156,7 +168,8 @@ def plot_section(section_geometry, grid, ax=None, alpha=0.45,
 
 def plot_medial_axes(midline_dict, ax=None, grid=None,
                      section_geometry=None, alpha_bg=0.2,
-                     title="Medial axes", show_airfoil=False):
+                     title="Medial axes", show_airfoil=False,
+                     eval_cache: SectionEvalCache | None = None):
     """Plot medial axis polylines, optionally on top of section geometry.
 
     Parameters
@@ -183,7 +196,7 @@ def plot_medial_axes(midline_dict, ax=None, grid=None,
     if grid is not None and section_geometry is not None:
         plot_section(section_geometry, grid, ax=ax,
                      alpha=alpha_bg, show_airfoil=show_airfoil,
-                     title=title)
+                     title=title, eval_cache=eval_cache)
 
     for label, polylines in midline_dict.items():
         color = _component_color(label)

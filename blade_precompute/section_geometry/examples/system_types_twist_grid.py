@@ -6,19 +6,18 @@ and **two** web-alignment panels (**chord-normal** vs **flapwise**) at a fixed t
 
 Structural naming (``SystemType{X}{Y}-{Z}``) — *see also each case's* ``structural_system_type`` *in the summary JSON*
 ------------------------------------------------------------------
-  **X** = number of webs.  **Y** = spar-cap family (none / fixed / box).  **Z** = **CN** (chord-normal) or **F** (flapwise).
+  **X** = number of webs.  **Y** = spar-cap family per taxonomy.  **Z** = **CN** (chord-normal) or **F** (flapwise).
 
-  This script builds ``MultiCellSection`` with **continuous** upper/lower spar caps (box spar between outermost webs).
-  So for **X ≥ 2**, cases match **SystemType{X}C-{Z}** (box spar).  For **X = 1**, the matrix lists **1B-{Z}** only (no 1C row);
-  we label **SystemType1B-{Z}** here as the closest structural row (single web, “fixed” cap span).
+  This script builds ``MultiCellSection`` with **continuous** upper/lower spar caps (**taxonomy Y = D**, box spar between outermost webs).
+  Every panel is labelled **SystemType{X}D-{Z}** in the summary JSON.
 
-  **Important:** Row letters **A / B / C** in this file are **only chord-fraction layouts** (where webs sit along the chord),
-  **not** structural **Y** (spar configuration).  Do not confuse **preset C** (wide-spread fractions) with **structural Y=C** (box spar).
+  **Important:** Column letters **A / B / C** in this file are **only chord-fraction presets** (where webs sit along the chord),
+  **not** taxonomy **Y**. Do not confuse **preset C** (wide-spread fractions) with **structural Y = C** (discrete caps per web).
 
 Chord-fraction presets (columns A / B / C — web positions, LE → TE)
 ------------------------------------------------------------------
 * **A — uniform**: ``i / (n_webs + 1)`` for ``i = 1 … n_webs``.
-* **B — fixed / legacy-style**: clustered toward LE/TE; n=2 matches legacy (0.15, 0.50).
+* **B — fixed stations**: clustered toward LE/TE; n=2 uses (0.15, 0.50) like the ``2D-CN`` / ``2D-F`` registry layouts.
 * **C — wide-spread**: webs pushed toward outer chord positions.
 
 Run from the repository root::
@@ -106,15 +105,9 @@ def web_chord_fracs(system: str, n_webs: int) -> tuple[float, ...]:
 
 
 def structural_system_type_name(n_webs: int, align_key: str) -> str:
-    """Display name matching the structural matrix for this script's geometry.
-
-    ``MultiCellSection`` uses continuous spar caps → structural **Y = C** (box) when ``n_webs >= 2``.
-    For a single web, the published matrix lists **1B** only → **SystemType1B-{Z}**.
-    """
+    """Display name: continuous box caps → taxonomy **Y = D** for all ``n_webs``."""
     z = "CN" if align_key == "chord_normal" else "F"
-    if n_webs == 1:
-        return f"SystemType1B-{z}"
-    return f"SystemType{n_webs}C-{z}"
+    return f"SystemType{n_webs}D-{z}"
 
 
 def main() -> int:
@@ -281,7 +274,7 @@ def main() -> int:
 
                 desc = {
                     "A": "uniform",
-                    "B": "fixed / legacy-style",
+                    "B": "fixed stations",
                     "C": "wide-spread",
                 }[letter]
                 title = (
@@ -346,7 +339,7 @@ def main() -> int:
         "structural_naming": {
             "pattern": "SystemType{X}{Y}-{Z}",
             "X": "web count",
-            "Y": "spar family (this script: continuous caps ⇒ C for X≥2; single web labeled 1B per matrix)",
+            "Y": "spar family (this script: continuous box caps ⇒ D for all panels; matches registry keys 1D-*, 2D-*, …)",
             "Z": "CN = chord_normal alignment, F = flapwise",
             "chord_fraction_presets_ABC": "Only web chord positions — not structural Y.",
         },
@@ -357,7 +350,7 @@ def main() -> int:
         },
         "system_presets": {
             "A": "uniform i/(n+1)",
-            "B": "fixed / legacy-style chord fractions",
+            "B": "fixed chord fractions (registry-style stations)",
             "C": "wide-spread chord fractions",
         },
         "include_component_zero_contours": bool(args.with_contours),

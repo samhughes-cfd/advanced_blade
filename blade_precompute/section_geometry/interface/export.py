@@ -8,6 +8,8 @@ import json
 import csv
 import numpy as np
 
+from ..engine.eval_cache import SectionEvalCache
+
 
 class SectionPropertiesReport:
     """Compute and collect section properties for all subcomponents.
@@ -24,16 +26,22 @@ class SectionPropertiesReport:
         report.to_json("section_props.json")
     """
 
-    def __init__(self, section_geometry, grid):
+    def __init__(self, section_geometry, grid, *, eval_cache: SectionEvalCache | None = None):
         self._bsg  = section_geometry
         self._grid = grid
+        self._eval_cache = eval_cache
         self._data = {}
         self._compute()
 
     def _compute(self):
         grid = self._grid
         for label in self._bsg:
-            phi = grid.eval(self._bsg[label])
+            if self._eval_cache is None:
+                phi = grid.eval(self._bsg[label])
+            else:
+                phi = self._eval_cache.get_or_eval_with_owner(
+                    label, self._bsg[label], grid, owner=self._bsg
+                )
             props = grid.section_properties(phi)
             # Also store midline bounding box
             props["label"] = label
@@ -166,9 +174,18 @@ def _multicell_host(section_geometry):
     return getattr(section_geometry, "_mcs", None) or section_geometry
 
 
-def _zero_contour_to_nested(grid, sdf_callable):
+def _zero_contour_to_nested(
+    grid,
+    sdf_callable,
+    *,
+    label: str,
+    eval_cache: SectionEvalCache | None = None,
+):
     """Extract φ=0 as list of polylines (each Nx2), JSON-ready."""
-    phi = grid.eval(sdf_callable)
+    if eval_cache is None:
+        phi = grid.eval(sdf_callable)
+    else:
+        phi = eval_cache.get_or_eval_with_owner(label, sdf_callable, grid, owner=None)
     segs = grid.zero_contour(phi)
     return [np.asarray(s, dtype=float).tolist() for s in segs]
 
@@ -181,6 +198,7 @@ def export_section_json(
     *,
     include_component_zero_contours=False,
     include_geometry_detail=True,
+    eval_cache: SectionEvalCache | None = None,
 ):
     """Export a complete section description to JSON.
 
@@ -211,7 +229,7 @@ def export_section_json(
     af_verts = section_geometry.airfoil.vertices.tolist()
 
     # Section properties
-    report = SectionPropertiesReport(section_geometry, grid)
+    report = SectionPropertiesReport(section_geometry, grid, eval_cache=eval_cache)
 
     def _arr(a):
         return np.asarray(a).tolist()
@@ -242,8 +260,12 @@ def export_section_json(
 
         skin_block = {}
         if o_sdf is not None and i_sdf is not None:
-            skin_block["outer_boundary"] = _zero_contour_to_nested(grid, o_sdf)
-            skin_block["inner_boundary"] = _zero_contour_to_nested(grid, i_sdf)
+            skin_block["outer_boundary"] = _zero_contour_to_nested(
+                grid, o_sdf, label="_skin_outer_boundary", eval_cache=eval_cache
+            )
+            skin_block["inner_boundary"] = _zero_contour_to_nested(
+                grid, i_sdf, label="_skin_inner_boundary", eval_cache=eval_cache
+            )
         else:
             skin_block["outer_boundary"] = None
             skin_block["inner_boundary"] = None
@@ -253,7 +275,10 @@ def export_section_json(
         for label in section_geometry.labels:
             geometry["components"][label] = {
                 "boundary": _zero_contour_to_nested(
-                    grid, section_geometry[label]
+                    grid,
+                    section_geometry[label],
+                    label=label,
+                    eval_cache=eval_cache,
                 ),
                 "medial_axes": midlines_out.get(label, []),
             }
@@ -262,7 +287,12 @@ def export_section_json(
     if include_component_zero_contours:
         contours_out = {}
         for label in section_geometry.labels:
-            phi = grid.eval(section_geometry[label])
+            if eval_cache is None:
+                phi = grid.eval(section_geometry[label])
+            else:
+                phi = eval_cache.get_or_eval_with_owner(
+                    label, section_geometry[label], grid, owner=section_geometry
+                )
             segs = grid.zero_contour(phi)
             contours_out[label] = [s.tolist() for s in segs]
         payload["component_zero_contours"] = contours_out

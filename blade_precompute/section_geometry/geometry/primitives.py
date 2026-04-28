@@ -20,7 +20,14 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 def _as_arrays(*args):
-    return tuple(np.asarray(a, dtype=float) for a in args)
+    return tuple(_ensure_f64(a) for a in args)
+
+
+def _ensure_f64(a):
+    """Return float64 ndarray with a fast-path for already-correct arrays."""
+    if isinstance(a, np.ndarray) and a.dtype == np.float64:
+        return a
+    return np.asarray(a, dtype=float)
 
 
 def _clamp(val, lo, hi):
@@ -217,33 +224,48 @@ def sdf_polygon(x, y, vertices):
     -------
     phi : ndarray
     """
-    x, y = _as_arrays(x, y)
-    verts = np.asarray(vertices, dtype=float)
-    n = len(verts)
+    x, y = np.broadcast_arrays(_ensure_f64(x), _ensure_f64(y))
+    verts = _ensure_f64(vertices)
+    n = int(len(verts))
+    if n < 3:
+        raise ValueError("Polygon must contain at least 3 vertices.")
 
-    # Minimum distance to any edge
-    d = np.full_like(x, np.inf)
-    # Winding number accumulator
-    winding = np.zeros_like(x)
+    # Flatten grid/sample coordinates once and process in chunks to avoid
+    # materialising a full (n_edges, n_points) tensor on very large grids.
+    xf = x.ravel()
+    yf = y.ravel()
+    m = int(xf.size)
 
-    for i in range(n):
-        ax_, ay_ = verts[i]
-        bx_, by_ = verts[(i + 1) % n]
+    ax = verts[:, 0]
+    ay = verts[:, 1]
+    bx = verts[(np.arange(n) + 1) % n, 0]
+    by = verts[(np.arange(n) + 1) % n, 1]
+    abx = bx - ax
+    aby = by - ay
+    ab_denom = (abx**2 + aby**2 + 1e-30)[:, None]
 
-        # Distance to edge i
-        abx, aby = bx_ - ax_, by_ - ay_
-        apx = x - ax_
-        apy = y - ay_
-        t = _clamp((apx * abx + apy * aby) / (abx**2 + aby**2 + 1e-30), 0.0, 1.0)
-        dist_sq = (apx - t * abx)**2 + (apy - t * aby)**2
-        d = np.minimum(d, dist_sq)
+    d_out = np.empty(m, dtype=np.float64)
+    winding_out = np.empty(m, dtype=np.int32)
 
-        # Winding contribution (crossing test)
-        c1 = y >= ay_
-        c2 = y < by_
-        c3 = (bx_ - ax_) * (y - ay_) - (by_ - ay_) * (x - ax_)
-        winding += np.where(c1 & c2 & (c3 > 0),  1.0, 0.0)
-        winding += np.where(~c1 & ~c2 & (c3 < 0), -1.0, 0.0)
+    chunk_size = 1 << 16
+    for start in range(0, m, chunk_size):
+        stop = min(start + chunk_size, m)
+        px = xf[start:stop][None, :]
+        py = yf[start:stop][None, :]
 
-    sign = np.where(winding == 0, 1.0, -1.0)
-    return sign * np.sqrt(d)
+        apx = px - ax[:, None]
+        apy = py - ay[:, None]
+        t = _clamp((apx * abx[:, None] + apy * aby[:, None]) / ab_denom, 0.0, 1.0)
+        dx = apx - t * abx[:, None]
+        dy = apy - t * aby[:, None]
+        d_out[start:stop] = np.min(dx**2 + dy**2, axis=0)
+
+        c1 = py >= ay[:, None]
+        c2 = py < by[:, None]
+        c3 = abx[:, None] * (py - ay[:, None]) - aby[:, None] * (px - ax[:, None])
+        wn_up = np.sum(c1 & c2 & (c3 > 0.0), axis=0, dtype=np.int32)
+        wn_dn = np.sum((~c1) & (~c2) & (c3 < 0.0), axis=0, dtype=np.int32)
+        winding_out[start:stop] = wn_up - wn_dn
+
+    sign = np.where(winding_out == 0, 1.0, -1.0)
+    return (sign * np.sqrt(d_out)).reshape(x.shape)

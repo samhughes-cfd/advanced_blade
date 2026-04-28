@@ -17,8 +17,8 @@ from .structural import (
     parse_fixed_cap_anchor,
     parse_structural_family,
 )
-from .io import SectionPropertiesReport, export_midlines_csv, export_section_json
-from .viz import plot_medial_axes, plot_sdf_field, plot_section
+from .interface.export import SectionPropertiesReport, export_midlines_csv, export_section_json
+from .vis import plot_medial_axes, plot_sdf_field, plot_section
 
 __version__ = "0.2.0"
 __author__ = "Sam Hughes"

@@ -14,6 +14,32 @@ from blade_precompute.section_geometry.geometry.primitives import (
 )
 
 
+def _sdf_polygon_reference(x, y, vertices):
+    """Reference edge-loop implementation for regression checking."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    verts = np.asarray(vertices, dtype=float)
+    n = len(verts)
+    d = np.full_like(x, np.inf)
+    winding = np.zeros_like(x)
+    for i in range(n):
+        ax_, ay_ = verts[i]
+        bx_, by_ = verts[(i + 1) % n]
+        abx, aby = bx_ - ax_, by_ - ay_
+        apx = x - ax_
+        apy = y - ay_
+        t = np.clip((apx * abx + apy * aby) / (abx**2 + aby**2 + 1e-30), 0.0, 1.0)
+        dist_sq = (apx - t * abx) ** 2 + (apy - t * aby) ** 2
+        d = np.minimum(d, dist_sq)
+        c1 = y >= ay_
+        c2 = y < by_
+        c3 = (bx_ - ax_) * (y - ay_) - (by_ - ay_) * (x - ax_)
+        winding += np.where(c1 & c2 & (c3 > 0), 1.0, 0.0)
+        winding += np.where(~c1 & ~c2 & (c3 < 0), -1.0, 0.0)
+    sign = np.where(winding == 0, 1.0, -1.0)
+    return sign * np.sqrt(d)
+
+
 # ---------------------------------------------------------------------------
 # sdf_circle
 # ---------------------------------------------------------------------------
@@ -181,3 +207,15 @@ class TestPolygon:
     def test_on_edge(self, square):
         phi = sdf_polygon(0.5, 0.0, square)
         np.testing.assert_allclose(phi, 0.0, atol=1e-10)
+
+    def test_vectorized_polygon_matches_reference(self):
+        poly = np.array(
+            [[0.0, 0.0], [1.2, -0.1], [1.1, 0.8], [0.4, 1.3], [-0.2, 0.6]],
+            dtype=float,
+        )
+        x = np.linspace(-0.5, 1.5, 80)
+        y = np.linspace(-0.5, 1.5, 60)
+        X, Y = np.meshgrid(x, y)
+        phi = sdf_polygon(X, Y, poly)
+        phi_ref = _sdf_polygon_reference(X, Y, poly)
+        np.testing.assert_allclose(phi, phi_ref, atol=1e-12, rtol=0.0)

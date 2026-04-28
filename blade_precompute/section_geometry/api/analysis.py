@@ -8,7 +8,7 @@ from ..engine.implicit_section_geometry import (
     MultiCellSection,
     SDFGrid,
 )
-from ..io import SectionPropertiesReport, export_midlines_csv, export_section_json
+from ..interface.export import SectionPropertiesReport, export_midlines_csv, export_section_json
 
 
 class SectionGeometryAnalysis:

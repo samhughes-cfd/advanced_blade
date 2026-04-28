@@ -31,8 +31,20 @@ Web alignment
 -------------
 Webs support two alignment modes:
   "chord_normal"  : web axis is perpendicular to the chord line (default).
-  "flapwise"      : web axis is locked to the global flapwise (y-global) direction,
-                    achieved by counter-rotating the web SDF by -twist_angle.
+                    ``(x_top, y_top, x_bot, y_bot)`` are taken in the chord
+                    (S) frame; the web axis is vertical in the S-frame and
+                    becomes tilted in the B-frame after the section's global
+                    +twist rotation.
+  "flapwise"      : web axis is locked to the global flapwise (y-B) direction.
+                    The CALLER supplies ``(x_top, y_top, x_bot, y_bot)`` in
+                    the chord (S) frame as the **inverse-rotation** of the
+                    desired B-frame vertical axis (i.e. a tilted S-frame
+                    segment that becomes vertical at ``x_b = x_b_web`` in the
+                    B-frame after the section's global +twist rotation).
+                    This guarantees the web shares the same inner-skin clip
+                    as the rest of the section in the B-frame (no SDF gap to
+                    the skin/cap). See ``MultiCellSection`` for how the
+                    inverse-rotation inputs are computed.
 
 Coordinate conventions
 -----------------------
@@ -45,6 +57,35 @@ import numpy as np
 from ..geometry.csg import intersect, subtract, shell, union, offset
 from ..geometry.primitives import sdf_capsule, sdf_circle
 from ..geometry.transforms import rotate_field
+from ..engine.csg_ir import (
+    Capsule,
+    CallableField,
+    Circle,
+    HalfPlane,
+    Intersect,
+    Offset,
+    Polygon,
+    Rotate,
+    Subtract,
+)
+
+
+def _ensure_f64(a):
+    """Return float64 ndarray with a fast-path for ndarray inputs."""
+    if isinstance(a, np.ndarray) and a.dtype == np.float64:
+        return a
+    return np.asarray(a, dtype=float)
+
+
+def _airfoil_expr(airfoil_sdf):
+    """Return polygon IR for AirfoilSDF-like inputs, else None."""
+    verts = getattr(airfoil_sdf, "vertices", None)
+    if verts is None:
+        return None
+    arr = np.asarray(verts, dtype=float)
+    if arr.ndim != 2 or arr.shape[1] != 2 or arr.shape[0] < 3:
+        return None
+    return Polygon(tuple((float(x), float(y)) for x, y in arr))
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +95,7 @@ from ..geometry.transforms import rotate_field
 def _chordwise_clip(x_start, x_end):
     """Return an SDF callable that is negative between x_start and x_end."""
     def _clip(x, y):
-        x = np.asarray(x, dtype=float)
+        x = _ensure_f64(x)
         left  = x - x_start   # < 0 left of x_start
         right = x_end - x     # < 0 right of x_end
         # Interior of clip box = intersect of two half-planes
@@ -74,8 +115,8 @@ def _parallel_web_strip_clip(nx, ny, c_a, c_b):
     ny = float(ny)
 
     def _clip(x, y):
-        xa = np.asarray(x, dtype=float)
-        ya = np.asarray(y, dtype=float)
+        xa = _ensure_f64(x)
+        ya = _ensure_f64(y)
         nd = nx * xa + ny * ya
         return np.maximum(lo - nd, nd - hi)
 
@@ -89,8 +130,8 @@ def _parallel_web_half_lt(nx, ny, c_bound):
     c = float(c_bound)
 
     def _clip(x, y):
-        xa = np.asarray(x, dtype=float)
-        ya = np.asarray(y, dtype=float)
+        xa = _ensure_f64(x)
+        ya = _ensure_f64(y)
         nd = nx * xa + ny * ya
         return nd - c
 
@@ -104,8 +145,8 @@ def _parallel_web_half_gt(nx, ny, c_bound):
     c = float(c_bound)
 
     def _clip(x, y):
-        xa = np.asarray(x, dtype=float)
-        ya = np.asarray(y, dtype=float)
+        xa = _ensure_f64(x)
+        ya = _ensure_f64(y)
         nd = nx * xa + ny * ya
         return c - nd
 
@@ -131,15 +172,105 @@ def web_station_projection(nx, ny, x_web, y_mid):
 def _upper_half_plane():
     """SDF of the upper half-plane (y >= 0): phi = -y inside."""
     def _hp(x, y):
-        return -np.asarray(y, dtype=float)
+        return -_ensure_f64(y)
     return _hp
 
 
 def _lower_half_plane():
     """SDF of the lower half-plane (y <= 0): phi = y inside."""
     def _hp(x, y):
-        return np.asarray(y, dtype=float)
+        return _ensure_f64(y)
     return _hp
+
+
+def _airfoil_offset_arc(
+    airfoil_sdf,
+    *,
+    skin_thickness,
+    cap_height,
+    x_start,
+    x_end,
+    surface,
+    n=80,
+    strip_clip=None,
+):
+    """Sample the cap mid-surface in the chord frame.
+
+    The cap SDF is a slab between ``inner_skin = 0`` (inner mold line, at
+    ``offset(airfoil, -skin_thickness/2)``) and ``inner_skin = -cap_height``
+    (inward), so its **midline** lies at ``inner_skin = -cap_height/2``,
+    i.e. the airfoil contour offset inward by ``skin_thickness/2 +
+    cap_height/2``.
+
+    Endpoint definition
+    -------------------
+    * If ``strip_clip is None`` (default — chord-normal webs): restricted to
+      chord-frame ``[x_start, x_end]`` on the requested surface; sampled at
+      ``n`` chord-uniform points. This matches the cap SDF's chord clip
+      ``_chordwise_clip(x_start, x_end)``.
+    * If ``strip_clip`` is provided (flapwise webs): the cap SDF uses
+      ``_parallel_web_strip_clip(nx, ny, c_a, c_b)`` (a strip between two
+      parallel lines ``n·p = c_{a,b}``) instead of the chord-vertical
+      ``_chordwise_clip``. To keep the midline consistent with the SDF, we
+      sample the offset arc densely across a chord range that brackets
+      ``[x_start, x_end]``, then prune to the segment where
+      ``strip_clip(x, y) <= 0`` (inside the strip) and linearly interpolate
+      at the two boundary crossings so the endpoints lie exactly on the
+      strip boundary. After the section's global twist this places the
+      midline endpoints at the same B-frame x as the bracketing flapwise
+      webs (since ``n·p = -x_B`` for ``n = (-cos ω, sin ω)``).
+    """
+    if surface == "upper":
+        seg = np.asarray(airfoil_sdf.upper_surface(), dtype=float)
+        sign = -1.0
+    elif surface == "lower":
+        seg = np.asarray(airfoil_sdf.lower_surface(), dtype=float)
+        sign = +1.0
+    else:
+        raise ValueError(f"surface must be 'upper' or 'lower', got {surface!r}")
+    order = np.argsort(seg[:, 0])
+    seg = seg[order]
+    inward = float(skin_thickness) / 2.0 + float(cap_height) / 2.0
+
+    if strip_clip is None:
+        n_use = int(max(2, n))
+        xs = np.linspace(float(x_start), float(x_end), n_use)
+        ys = np.interp(xs, seg[:, 0], seg[:, 1])
+        return np.column_stack([xs, ys + sign * inward])
+
+    # ``strip_clip`` is a parallel-line strip in the chord frame whose
+    # boundaries are typically *not* aligned with chord-frame x. Sample the
+    # offset arc densely over the full chord (the strip can extend beyond
+    # ``[x_start, x_end]`` once mapped to chord-frame x), then prune to the
+    # interior of the strip and linearly interpolate at the boundary
+    # crossings.
+    n_use = int(max(8, 4 * n))
+    x_min = float(seg[0, 0])
+    x_max = float(seg[-1, 0])
+    xs = np.linspace(x_min, x_max, n_use)
+    ys = np.interp(xs, seg[:, 0], seg[:, 1]) + sign * inward
+    arc = np.column_stack([xs, ys])
+    phi = np.asarray(strip_clip(arc[:, 0], arc[:, 1]), dtype=float)
+    inside = phi <= 0.0
+    if not np.any(inside):
+        return arc[:0]
+    idx = np.where(inside)[0]
+    i_lo = int(idx[0])
+    i_hi = int(idx[-1])
+    arc_clip = arc[i_lo : i_hi + 1].copy()
+    if i_lo > 0:
+        a = float(phi[i_lo - 1])
+        b = float(phi[i_lo])
+        if a != b:
+            t = a / (a - b)
+            arc_clip[0] = arc[i_lo - 1] + t * (arc[i_lo] - arc[i_lo - 1])
+    if i_hi < n_use - 1:
+        a = float(phi[i_hi])
+        b = float(phi[i_hi + 1])
+        if a != b:
+            t = a / (a - b)
+            arc_clip[-1] = arc[i_hi] + t * (arc[i_hi + 1] - arc[i_hi])
+    return arc_clip
 
 
 def _cap_laminate_slab(inner_skin, cap_height):
@@ -154,10 +285,22 @@ def _cap_laminate_slab(inner_skin, cap_height):
     cap_h = float(cap_height)
 
     def _op(x, y):
-        is_ = np.asarray(inner_skin(x, y), dtype=float)
+        is_ = _ensure_f64(inner_skin(x, y))
         return np.maximum(is_, -is_ - cap_h)
 
     return _op
+
+
+def _cap_laminate_slab_expr(inner_skin_expr, cap_height):
+    """IR-compatible cap laminate slab wrapper."""
+    cap_h = float(cap_height)
+    return CallableField(
+        key=f"cap_slab_{id(inner_skin_expr)}_{cap_h:.12g}",
+        fn=lambda x, y: np.maximum(
+            _ensure_f64(inner_skin_expr.fn(x, y)),
+            -_ensure_f64(inner_skin_expr.fn(x, y)) - cap_h,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +340,22 @@ class OuterSkin:
 
     def __call__(self, x, y):
         return self._sdf(x, y)
+
+    def midline_polyline(self):
+        """Return the skin midline polyline in the chord frame.
+
+        ``OuterSkin._sdf = shell(airfoil, thickness)`` is centred on the
+        airfoil zero-level-set, so the midline of the laminate is exactly
+        the airfoil contour. Returns the airfoil's vertices verbatim
+        (closed polyline, ordered TE → upper → LE → lower → TE).
+        """
+        verts = getattr(self._af, "vertices", None)
+        if verts is None:
+            raise AttributeError(
+                "OuterSkin.midline_polyline requires the underlying airfoil "
+                "SDF to expose a 'vertices' attribute (AirfoilSDF-compatible)."
+            )
+        return np.asarray(verts, dtype=float).copy()
 
     def __repr__(self):
         return f"OuterSkin(thickness={self.thickness:.4g})"
@@ -244,6 +403,8 @@ class SparCap:
         self.x_end          = float(x_end)
         self.cap_height     = float(cap_height)
         self.skin_thickness = float(skin_thickness)
+        self._af            = airfoil_sdf
+        self._strip_clip    = strip_clip
 
         # Inner skin reference surface (flush with OuterSkin.inner_sdf).
         # OuterSkin uses shell(af, t) with mid-surface at phi=0 → inner face at phi = -t/2.
@@ -263,9 +424,47 @@ class SparCap:
             chord_clip = _chordwise_clip(x_start, x_end)
 
         self._sdf = intersect(intersect(cap_lam, side_clip), chord_clip)
+        self._expr = None
+        airfoil_expr = _airfoil_expr(airfoil_sdf)
+        if airfoil_expr is not None:
+            inner_skin_field = CallableField(
+                key=f"inner_skin_{id(self)}",
+                fn=offset(airfoil_sdf, -skin_thickness / 2.0),
+            )
+            cap_lam_expr = _cap_laminate_slab_expr(inner_skin_field, cap_height)
+            side_expr = HalfPlane(nx=0.0, ny=-1.0, d=0.0) if surface == "upper" else HalfPlane(nx=0.0, ny=1.0, d=0.0)
+            if strip_clip is not None:
+                clip_expr = CallableField(key=f"spar_strip_{id(strip_clip)}", fn=strip_clip)
+            else:
+                clip_expr = Intersect(
+                    HalfPlane(nx=-1.0, ny=0.0, d=float(x_start)),
+                    HalfPlane(nx=1.0, ny=0.0, d=-float(x_end)),
+                )
+            self._expr = Intersect(Intersect(cap_lam_expr, side_expr), clip_expr)
 
     def __call__(self, x, y):
         return self._sdf(x, y)
+
+    def midline_polyline(self, n=80):
+        """Return the cap mid-surface polyline in the chord frame.
+
+        The cap is a slab between ``inner_skin = 0`` and
+        ``inner_skin = -cap_height``, so its midline is the airfoil
+        contour offset inward by ``skin_thickness/2 + cap_height/2``,
+        sliced on the requested surface. Endpoints follow the same chord
+        clip the SDF uses (chord-vertical or parallel-strip — see
+        :func:`_airfoil_offset_arc`).
+        """
+        return _airfoil_offset_arc(
+            self._af,
+            skin_thickness=self.skin_thickness,
+            cap_height=self.cap_height,
+            x_start=self.x_start,
+            x_end=self.x_end,
+            surface=self.surface,
+            n=n,
+            strip_clip=self._strip_clip,
+        )
 
     def __repr__(self):
         return (f"SparCap(surface={self.surface!r}, "
@@ -317,6 +516,8 @@ class ContinuousSparCap:
         self.cap_height     = float(cap_height)
         self.skin_thickness = float(skin_thickness)
         self.twist_angle    = float(twist_angle)
+        self._af            = airfoil_sdf
+        self._strip_clip    = strip_clip
 
         inner_skin = offset(airfoil_sdf, -skin_thickness / 2.0)
         cap_lam    = _cap_laminate_slab(inner_skin, cap_height)
@@ -333,9 +534,62 @@ class ContinuousSparCap:
             self._sdf = rotate_field(raw_sdf, twist_angle, cx=cx, cy=0.0)
         else:
             self._sdf = raw_sdf
+        self._expr = None
+        airfoil_expr = _airfoil_expr(airfoil_sdf)
+        if airfoil_expr is not None:
+            inner_skin_field = CallableField(
+                key=f"cont_inner_skin_{id(self)}",
+                fn=offset(airfoil_sdf, -skin_thickness / 2.0),
+            )
+            cap_lam_expr = _cap_laminate_slab_expr(inner_skin_field, cap_height)
+            side_expr = HalfPlane(nx=0.0, ny=-1.0, d=0.0) if surface == "upper" else HalfPlane(nx=0.0, ny=1.0, d=0.0)
+            if strip_clip is not None:
+                clip_expr = CallableField(key=f"cont_strip_{id(strip_clip)}", fn=strip_clip)
+            else:
+                clip_expr = Intersect(
+                    HalfPlane(nx=-1.0, ny=0.0, d=float(x_start)),
+                    HalfPlane(nx=1.0, ny=0.0, d=-float(x_end)),
+                )
+            expr_raw = Intersect(Intersect(cap_lam_expr, side_expr), clip_expr)
+            if abs(twist_angle) > 1e-10:
+                cx = 0.5 * (self.x_start + self.x_end)
+                self._expr = Rotate(expr_raw, angle=float(twist_angle), cx=float(cx), cy=0.0)
+            else:
+                self._expr = expr_raw
 
     def __call__(self, x, y):
         return self._sdf(x, y)
+
+    def midline_polyline(self, n=80):
+        """Return the cap mid-surface polyline in the chord frame.
+
+        Same offset construction as :meth:`SparCap.midline_polyline`,
+        including the chord-vertical / parallel-strip endpoint rule (see
+        :func:`_airfoil_offset_arc`). If ``twist_angle != 0`` the polyline
+        is then rotated about the chordwise midpoint of
+        ``[x_start, x_end]`` to mirror the SDF's internal rotation.
+        ``MultiCellSection`` typically passes ``twist_angle=0`` and
+        applies one global rotation to all components.
+        """
+        arc = _airfoil_offset_arc(
+            self._af,
+            skin_thickness=self.skin_thickness,
+            cap_height=self.cap_height,
+            x_start=self.x_start,
+            x_end=self.x_end,
+            surface=self.surface,
+            n=n,
+            strip_clip=self._strip_clip,
+        )
+        if abs(self.twist_angle) > 1e-10:
+            cx = 0.5 * (self.x_start + self.x_end)
+            c = float(np.cos(self.twist_angle))
+            s = float(np.sin(self.twist_angle))
+            rel = arc - np.array([cx, 0.0])
+            arc = np.column_stack(
+                [c * rel[:, 0] - s * rel[:, 1], s * rel[:, 0] + c * rel[:, 1]]
+            ) + np.array([cx, 0.0])
+        return arc
 
     def __repr__(self):
         return (f"ContinuousSparCap(surface={self.surface!r}, "
@@ -400,17 +654,49 @@ class ShearWeb:
 
         inner_af = offset(airfoil_sdf, -skin_thickness / 2.0)
         raw_sdf  = intersect(_cap_sdf, inner_af)
+        self._expr = None
+        airfoil_expr = _airfoil_expr(airfoil_sdf)
+        if airfoil_expr is not None:
+            expr_raw = Intersect(
+                Capsule(
+                    ax=float(x_top),
+                    ay=float(y_top),
+                    bx=float(x_bot),
+                    by=float(y_bot),
+                    r=float(r),
+                ),
+                Offset(airfoil_expr, amount=-skin_thickness / 2.0),
+            )
+            self._expr = expr_raw
 
-        if alignment == "flapwise" and abs(twist_angle) > 1e-10:
-            # Counter-rotate by -twist_angle to stay flapwise-aligned
-            cx = 0.5 * (x_top + x_bot)
-            cy = 0.5 * (y_top + y_bot)
-            self._sdf = rotate_field(raw_sdf, -twist_angle, cx=cx, cy=cy)
-        else:
-            self._sdf = raw_sdf
+        # No counter-rotation here: for ``alignment="flapwise"`` the caller
+        # has supplied ``(x_top, y_top, x_bot, y_bot)`` in the S-frame as the
+        # inverse-rotation of the desired B-frame vertical axis, so the
+        # section's global +twist rotation alone produces the intended
+        # B-frame orientation while the inner-skin clip naturally rotates
+        # with it (no translation/rotation mismatch with the skin).
+        self._sdf = raw_sdf
 
     def __call__(self, x, y):
         return self._sdf(x, y)
+
+    def midline_polyline(self, n=20):
+        """Return the web midline polyline in the chord (S) frame, top → bot.
+
+        The web SDF is a capsule of radius ``thickness/2`` built around the
+        line ``(x_top, y_top) → (x_bot, y_bot)`` clipped by the chord-frame
+        inner skin. For ``alignment='chord_normal'`` this S-frame axis is
+        vertical at ``x = x_top = x_bot``; for ``alignment='flapwise'`` it
+        is the **inverse-rotation of the intended B-frame vertical axis**
+        (a tilted S-frame segment), supplied by ``MultiCellSection``. In
+        both cases the same chord-frame line is the analytical midline and
+        becomes the correct B-frame midline after the section's global
+        +twist rotation.
+        """
+        n_use = max(2, int(n))
+        top = np.array([self.x_top, self.y_top], dtype=float)
+        bot = np.array([self.x_bot, self.y_bot], dtype=float)
+        return np.linspace(top, bot, n_use)
 
     def __repr__(self):
         return (f"ShearWeb(x=[{self.x_top:.3g},{self.x_bot:.3g}], "
@@ -469,6 +755,28 @@ class SandwichCore:
         self._sdf    = sdf
         self.x_start = x_start
         self.x_end   = x_end
+        self._expr = None
+        airfoil_expr = _airfoil_expr(airfoil_sdf)
+        if airfoil_expr is not None:
+            expr = Offset(airfoil_expr, amount=-skin_thickness / 2.0)
+            if exclusion_sdfs:
+                for j, ex in enumerate(exclusion_sdfs):
+                    ex_expr = getattr(ex, "_expr", None)
+                    if ex_expr is None:
+                        ex_expr = CallableField(key=f"core_ex_{j}_{id(ex)}", fn=ex)
+                    expr = Subtract(expr, ex_expr)
+            if strip_clip is not None:
+                expr = Intersect(expr, CallableField(key=f"core_strip_{id(strip_clip)}", fn=strip_clip))
+            else:
+                if x_start is not None:
+                    expr = Intersect(expr, HalfPlane(nx=-1.0, ny=0.0, d=float(x_start)))
+                if x_end is not None:
+                    expr = Intersect(expr, HalfPlane(nx=1.0, ny=0.0, d=-float(x_end)))
+            if y_min is not None:
+                expr = Intersect(expr, HalfPlane(nx=0.0, ny=-1.0, d=float(y_min)))
+            if y_max is not None:
+                expr = Intersect(expr, HalfPlane(nx=0.0, ny=1.0, d=-float(y_max)))
+            self._expr = expr
 
     def __call__(self, x, y):
         return self._sdf(x, y)
@@ -517,6 +825,20 @@ class TEInsert:
                 sdf = subtract(sdf, ex)
 
         self._sdf = sdf
+        self._expr = None
+        airfoil_expr = _airfoil_expr(airfoil_sdf)
+        if airfoil_expr is not None:
+            expr = Intersect(
+                Offset(airfoil_expr, amount=-skin_thickness / 2.0),
+                HalfPlane(nx=-1.0, ny=0.0, d=float(x_start)),
+            )
+            if exclusion_sdfs:
+                for j, ex in enumerate(exclusion_sdfs):
+                    ex_expr = getattr(ex, "_expr", None)
+                    if ex_expr is None:
+                        ex_expr = CallableField(key=f"ex_{j}_{id(ex)}", fn=ex)
+                    expr = Subtract(expr, ex_expr)
+            self._expr = expr
 
     def __call__(self, x, y):
         return self._sdf(x, y)
@@ -571,6 +893,16 @@ class LEInsert:
         )
 
         self._sdf = sdf
+        self._expr = None
+        airfoil_expr = _airfoil_expr(airfoil_sdf)
+        if airfoil_expr is not None:
+            self._expr = Intersect(
+                Intersect(
+                    Offset(airfoil_expr, amount=-skin_thickness / 2.0),
+                    HalfPlane(nx=1.0, ny=0.0, d=-float(x_end)),
+                ),
+                Circle(cx=float(le_x), cy=float(le_y), r=float(radius)),
+            )
 
     def __call__(self, x, y):
         return self._sdf(x, y)

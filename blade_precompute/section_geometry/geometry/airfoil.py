@@ -148,53 +148,32 @@ class AirfoilSDF:
         if len(code) != 4:
             raise ValueError(f"Expected 4-digit NACA code, got '{naca_code}'.")
 
-        m  = int(code[0]) / 100.0   # max camber fraction
-        p  = int(code[1]) / 10.0    # max camber position
-        tt = int(code[2:]) / 100.0  # thickness fraction
+        m = int(code[0]) / 100.0
+        p = int(code[1]) / 10.0
+        tt = int(code[2:]) / 100.0
+        from .naca_parametric import naca_four_digit_vertices
 
-        # Cosine-spaced x distribution (0 → 1)
-        beta = np.linspace(0.0, np.pi, n_points // 2 + 1)
-        xc   = 0.5 * (1.0 - np.cos(beta))
-
-        # Thickness
-        a = [0.2969, -0.1260, -0.3516, 0.2843, -0.1015 if closed_te else -0.1036]
-        yt = (tt / 0.2) * (
-            a[0] * np.sqrt(xc)
-            + a[1] * xc
-            + a[2] * xc**2
-            + a[3] * xc**3
-            + a[4] * xc**4
-        )
-
-        # Camber line and gradient
-        if m == 0.0 or p == 0.0:
-            yc    = np.zeros_like(xc)
-            dyc   = np.zeros_like(xc)
-        else:
-            yc  = np.where(
-                xc <= p,
-                (m / p**2) * (2 * p * xc - xc**2),
-                (m / (1 - p)**2) * ((1 - 2*p) + 2*p*xc - xc**2),
-            )
-            dyc = np.where(
-                xc <= p,
-                (2*m / p**2) * (p - xc),
-                (2*m / (1-p)**2) * (p - xc),
-            )
-
-        theta = np.arctan(dyc)
-
-        xu = (xc - yt * np.sin(theta)) * chord
-        yu = (yc + yt * np.cos(theta)) * chord
-        xl = (xc + yt * np.sin(theta)) * chord
-        yl = (yc - yt * np.cos(theta)) * chord
-
-        # Wrap: upper surface TE→LE, lower surface LE→TE
-        upper = np.column_stack([xu[::-1], yu[::-1]])
-        lower = np.column_stack([xl[1:],   yl[1:]])
-        verts = np.vstack([upper, lower])
-
+        verts = naca_four_digit_vertices(m, p, tt, int(n_points), float(chord), closed_te=closed_te)
         return cls(verts, chord=chord)
+
+    @classmethod
+    def from_naca_series(
+        cls,
+        series: int,
+        m: float,
+        p: float,
+        xx: float,
+        n_points: int = 200,
+        chord: float = 1.0,
+        closed_te: bool = True,
+    ):
+        """Build from precompute spanwise convention (4-, 5-, or 6-series). See ``naca_parametric``."""
+        from .naca_parametric import airfoil_vertices_from_spanwise
+
+        verts = airfoil_vertices_from_spanwise(
+            int(series), float(m), float(p), float(xx), int(n_points), float(chord), closed_te=closed_te
+        )
+        return cls(verts, chord=float(chord))
 
     # ------------------------------------------------------------------
     # Geometry queries

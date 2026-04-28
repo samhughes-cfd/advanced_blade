@@ -15,6 +15,10 @@ from blade_precompute.section_geometry.engine.implicit_section_geometry import (
     SparCap,
     offset,
 )
+from blade_precompute.section_geometry.laminate_thickness_limits import (
+    MIN_REALISTIC_SKIN_LAMINATE_THICKNESS_M,
+    MIN_REALISTIC_SPAR_LAMINATE_THICKNESS_M,
+)
 from blade_precompute.section_geometry.interface.plot import _DEFAULT_COLOR, _component_color
 
 
@@ -123,6 +127,30 @@ class TestSparCapCurvature:
 # ---------------------------------------------------------------------------
 
 class TestMultiCellTopology:
+    def test_laminate_thickness_minimum_clamp(self, af):
+        mcs = MultiCellSection(
+            af,
+            web_x_positions=[0.25, 0.5],
+            skin_thickness=0.0005,
+            web_thickness=0.0005,
+        )
+        assert mcs._skin_t == pytest.approx(MIN_REALISTIC_SKIN_LAMINATE_THICKNESS_M)
+
+    def test_spar_cap_height_clamp_matches_minimum_reference(self, af, grid):
+        """Sub-millimetre cap_height is raised to the spar laminate floor; SDF matches explicit minimum."""
+        m_tiny = MultiCellSection.twin_web(
+            af, skin_thickness=0.003, cap_height=1e-5, web_thickness=0.004
+        )
+        m_ref = MultiCellSection.twin_web(
+            af,
+            skin_thickness=0.003,
+            cap_height=MIN_REALISTIC_SPAR_LAMINATE_THICKNESS_M,
+            web_thickness=0.004,
+        )
+        p0 = grid.eval(m_tiny["spar_cap_upper"])
+        p1 = grid.eval(m_ref["spar_cap_upper"])
+        np.testing.assert_allclose(p0, p1, atol=1e-9, rtol=0)
+
     def test_single_web_d_spar_labels(self, af):
         mcs = MultiCellSection.d_spar(af, web_x=0.25,
                                       skin_thickness=0.003,
@@ -133,24 +161,26 @@ class TestMultiCellTopology:
         assert "spar_cap_lower" in mcs.labels
         assert "outer_skin"    in mcs.labels
         assert mcs.n_webs == 1
+        assert "core_0" in mcs.labels and "core_1" in mcs.labels
+        assert mcs.n_cells == 2
 
     def test_twin_web_labels(self, af):
         mcs = MultiCellSection.twin_web(af)
         assert mcs.n_webs  == 2
         assert "web_0"     in mcs.labels
         assert "web_1"     in mcs.labels
-        assert "core_0"    in mcs.labels
-        assert mcs.n_cells == 1
+        assert "core_0" in mcs.labels and "core_1" in mcs.labels and "core_2" in mcs.labels
+        assert mcs.n_cells == 3
 
     def test_three_web_labels(self, af):
         mcs = MultiCellSection.torsion_box(af)
         assert mcs.n_webs  == 3
-        assert mcs.n_cells == 2
-        assert "core_0"    in mcs.labels
-        assert "core_1"    in mcs.labels
+        assert mcs.n_cells == 4
+        for j in range(4):
+            assert f"core_{j}" in mcs.labels
 
     def test_n_web_generalisation(self, af):
-        """N webs → N-1 cells."""
+        """N webs → N+1 structural bays (foam regions when core_enabled)."""
         for n in range(1, 6):
             xs = np.linspace(0.15, 0.55, n).tolist()
             mcs = MultiCellSection(af, web_x_positions=xs,
@@ -158,7 +188,7 @@ class TestMultiCellTopology:
                                    cap_height=0.010,
                                    web_thickness=0.003)
             assert mcs.n_webs == n
-            expected_cells = max(0, n - 1)
+            expected_cells = n + 1
             assert mcs.n_cells == expected_cells, \
                 f"Expected {expected_cells} cells for {n} webs, got {mcs.n_cells}"
 
@@ -179,12 +209,15 @@ class TestInteriorChecks:
         mcs = MultiCellSection.twin_web(af,
                                         skin_thickness=0.003,
                                         cap_height=0.010)
-        phi_core = grid.eval(mcs["core_0"])
-        phi_af   = grid.eval(af)
-        interior = phi_core < 0.0
-        assert interior.any(), "Core has no interior region."
-        assert np.all(phi_af[interior] <= 0.01), \
-            "Core interior leaks outside airfoil."
+        phi_af = grid.eval(af)
+        for lbl in mcs.labels:
+            if not lbl.startswith("core_"):
+                continue
+            phi_core = grid.eval(mcs[lbl])
+            interior = phi_core < 0.0
+            assert interior.any(), f"{lbl} has no interior region."
+            assert np.all(phi_af[interior] <= 0.01), \
+                f"{lbl} interior leaks outside airfoil."
 
     def test_caps_do_not_overlap(self, af, grid):
         """Upper and lower caps should not share interior points."""

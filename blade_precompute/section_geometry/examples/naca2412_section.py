@@ -223,14 +223,22 @@ for label in ["outer_skin", "spar_cap_upper", "web_1"]:
 
 
 # =============================================================================
-# 7. Per-component SDF grid (torsion box — 6 panel)
+# 7. Per-component SDF grid (torsion box — 3 webs, 4 full-span core bays)
 # =============================================================================
 
 labels_to_plot = [
-    "outer_skin", "spar_cap_upper", "spar_cap_lower",
-    "web_0",      "web_1",          "core_0",
+    "outer_skin",
+    "spar_cap_upper",
+    "spar_cap_lower",
+    "web_0",
+    "web_1",
+    "web_2",
+    "core_0",
+    "core_1",
+    "core_2",
+    "core_3",
 ]
-fig, axes = plt.subplots(2, 3, figsize=(16, 7))
+fig, axes = plt.subplots(2, 5, figsize=(20, 7))
 for ax, lbl in zip(axes.ravel(), labels_to_plot):
     phi = grid_tors.eval(torsion[lbl])
     im  = ax.pcolormesh(grid_tors.X, grid_tors.Y, phi,

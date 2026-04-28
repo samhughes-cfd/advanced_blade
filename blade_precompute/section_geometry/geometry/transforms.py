@@ -37,6 +37,13 @@ Usage
 import numpy as np
 
 
+def _ensure_f64(a):
+    """Return float64 ndarray with a fast-path for ndarray inputs."""
+    if isinstance(a, np.ndarray) and a.dtype == np.float64:
+        return a
+    return np.asarray(a, dtype=float)
+
+
 # ---------------------------------------------------------------------------
 # Elementary transforms
 # ---------------------------------------------------------------------------
@@ -63,8 +70,8 @@ def rotate_field(f, angle, cx=0.0, cy=0.0):
     sin_a = np.sin(-angle)
 
     def _rotated(x, y):
-        x = np.asarray(x, dtype=float)
-        y = np.asarray(y, dtype=float)
+        x = _ensure_f64(x)
+        y = _ensure_f64(y)
         # Shift to rotation centre
         xr = x - cx
         yr = y - cy
@@ -89,8 +96,8 @@ def translate_field(f, dx, dy):
     callable (x, y) → ndarray
     """
     def _translated(x, y):
-        x = np.asarray(x, dtype=float)
-        y = np.asarray(y, dtype=float)
+        x = _ensure_f64(x)
+        y = _ensure_f64(y)
         return f(x - dx, y - dy)
     return _translated
 
@@ -128,8 +135,8 @@ def scale_field(f, sx, sy=None, cx=0.0, cy=0.0):
         )
 
     def _scaled(x, y):
-        x = np.asarray(x, dtype=float)
-        y = np.asarray(y, dtype=float)
+        x = _ensure_f64(x)
+        y = _ensure_f64(y)
         xp = (x - cx) / sx + cx
         yp = (y - cy) / sy + cy
         # Correct distance by minimum scale factor for approximate SDF
@@ -141,14 +148,14 @@ def scale_field(f, sx, sy=None, cx=0.0, cy=0.0):
 def mirror_field_x(f):
     """Mirror the SDF field about the x-axis (y → -y)."""
     def _mirrored(x, y):
-        return f(np.asarray(x, dtype=float), -np.asarray(y, dtype=float))
+        return f(_ensure_f64(x), -_ensure_f64(y))
     return _mirrored
 
 
 def mirror_field_y(f):
     """Mirror the SDF field about the y-axis (x → -x)."""
     def _mirrored(x, y):
-        return f(-np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+        return f(-_ensure_f64(x), _ensure_f64(y))
     return _mirrored
 
 
@@ -295,8 +302,8 @@ def rotate_points(x, y, angle, cx=0.0, cy=0.0):
     -------
     xr, yr : ndarray
     """
-    x = np.asarray(x, dtype=float)
-    y = np.asarray(y, dtype=float)
+    x = _ensure_f64(x)
+    y = _ensure_f64(y)
     cos_a = np.cos(angle)
     sin_a = np.sin(angle)
     xr = cos_a * (x - cx) - sin_a * (y - cy) + cx

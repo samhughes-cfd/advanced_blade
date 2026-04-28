@@ -10,6 +10,8 @@ The extractor operates entirely on pre-evaluated SDF arrays (ndarray, shape
 import numpy as np
 from scipy import ndimage
 
+from ..engine.eval_cache import SectionEvalCache
+
 try:
     from skimage.morphology import skeletonize
     _HAS_SKIMAGE = True
@@ -195,7 +197,13 @@ class MedialAxisExtractor:
             return polylines, skeleton
         return polylines
 
-    def extract_for_section(self, section_geometry):
+    def extract_for_section(
+        self,
+        section_geometry,
+        *,
+        labels: list[str] | tuple[str, ...] | None = None,
+        eval_cache: SectionEvalCache | None = None,
+    ):
         """Extract medial axes for all subcomponents of a BladeSectionGeometry.
 
         Evaluates each subcomponent's SDF on the grid and runs extraction.
@@ -209,9 +217,15 @@ class MedialAxisExtractor:
         results : dict
             {label: list of (N, 2) ndarray polylines}
         """
+        active_labels = list(labels) if labels is not None else list(section_geometry)
         results = {}
-        for label in section_geometry:
-            phi = self.grid.eval(section_geometry[label])
+        for label in active_labels:
+            if eval_cache is None:
+                phi = self.grid.eval(section_geometry[label])
+            else:
+                phi = eval_cache.get_or_eval_with_owner(
+                    label, section_geometry[label], self.grid, owner=section_geometry
+                )
             polylines = self.extract(phi)
             results[label] = polylines
         return results

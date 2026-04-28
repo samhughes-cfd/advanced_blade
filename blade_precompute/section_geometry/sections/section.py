@@ -165,7 +165,8 @@ class BladeSectionGeometry:
                    le_insert_x=None,
                    le_radius=None,
                    core_enabled=True,
-                   y_search=None):
+                   y_search=None,
+                   structural_family="D"):
         """Construct directly from N web positions.
 
         Bypasses the config-dict API and calls MultiCellSection directly.
@@ -189,6 +190,7 @@ class BladeSectionGeometry:
             le_radius       = le_radius,
             core_enabled    = core_enabled,
             y_search        = y_search,
+            structural_family = structural_family,
         )
 
     def __repr__(self):
