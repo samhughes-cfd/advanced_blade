@@ -19,7 +19,10 @@ from blade_precompute.orchestration.precompute import (
     SectionShellModelStage,
 )
 from blade_precompute.orchestration.precompute.shell_spars import section_shell_spars_from_layout
-from blade_precompute.orchestration.precompute.stages import section_shell_model_skipped_outputs
+from blade_precompute.orchestration.precompute.stages import (
+    _station_resultants_for_shell_from_beam,
+    section_shell_model_skipped_outputs,
+)
 from blade_precompute.orchestration.system_layout import resolve_system_type
 
 
@@ -126,6 +129,30 @@ def test_section_shell_model_skipped_outputs_writes_summary(tmp_path: Path) -> N
     assert '"skipped": true' in data
     assert "run_section_shell_model=false" in data
     assert "station_result_json_paths" in data
+
+
+def test_station_resultants_for_shell_reads_beam_json_order(tmp_path: Path) -> None:
+    result_json = tmp_path / "beam_result.json"
+    result_json.write_text(
+        json.dumps(
+            {
+                "z_stations_out": [0.0, 4.0, 8.0],
+                "resultants": [
+                    [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0],
+                    [11.0, 21.0, 31.0, 41.0, 51.0, 61.0, 71.0],
+                    [12.0, 22.0, 32.0, 42.0, 52.0, 62.0, 72.0],
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    bm_out = BeamModelOutputs(result_json=result_json, png_paths=[])
+
+    station_res = _station_resultants_for_shell_from_beam(bm_out, _dummy_inputs())
+
+    assert station_res[0] == pytest.approx((10.0, 20.0, 30.0, 40.0, 50.0, 60.0))
+    assert station_res[1] == pytest.approx((11.0, 21.0, 31.0, 41.0, 51.0, 61.0))
+    assert station_res[2] == pytest.approx((12.0, 22.0, 32.0, 42.0, 52.0, 62.0))
 
 
 def test_grid_config_section_shell_fields() -> None:
