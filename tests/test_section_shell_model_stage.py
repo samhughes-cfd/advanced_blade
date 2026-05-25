@@ -11,6 +11,7 @@ import pytest
 from blade_precompute.orchestration import PrecomputeOrchestrationContext
 from blade_precompute.orchestration.component_materials import ComponentMaterialsMap
 from blade_precompute.orchestration.precompute import (
+    BeamModelOutputs,
     GridConfig,
     LinspaceSpec,
     PrecomputeInputs,
