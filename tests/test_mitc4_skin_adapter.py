@@ -20,6 +20,7 @@ from blade_precompute.section_properties.engine.materials import OrthotropicPly 
 from blade_precompute.section_optimisation.engine.mitc4_eval import (  # noqa: E402
     LaminateDefinitionMitc4SkinAdapter,
     _coerce_skin_lam_for_mitc4,
+    _spar_x_metres,
 )
 
 
@@ -73,3 +74,23 @@ def test_coerce_passes_through_non_laminate_definition() -> None:
     raw = Laminate(E=20e9, t=0.006, nu=0.35, n_plies=4)
     assert _coerce_skin_lam_for_mitc4(raw) is raw
     assert _coerce_skin_lam_for_mitc4(None) is None
+
+
+def test_spar_x_metres_uses_half_chord_web_positions() -> None:
+    spars = _spar_x_metres(np.array([-0.35, 0.0], dtype=np.float64), chord_m=1.7)
+    assert spars == pytest.approx([0.255, 0.85])
+
+
+def test_build_section_uses_scaled_airfoil_trailing_edge() -> None:
+    from multi_cell_blade_section import build_section, naca_four_digit  # type: ignore[import-untyped]
+
+    chord = 1.6
+    airfoil = naca_four_digit(m=0.0, p=0.4, t_c=0.12, n=48)
+    airfoil[:, 0] *= chord
+
+    panels, _booms, webs_geom, n_cells = build_section(airfoil, [0.24, 0.80])
+
+    panel_x = np.concatenate([np.asarray(p.nodes, dtype=np.float64)[:, 0] for p in panels])
+    assert n_cells == 3
+    assert len(webs_geom) == 2
+    assert float(np.max(panel_x)) == pytest.approx(chord)

@@ -369,8 +369,8 @@ def plot_resultants_with_max_fi(
         ax.text(0.5, 0.5, "resultants not available or wrong shape", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig, ax
-    # Convention: columns 0..5 often N,Vy,Vz,My,Mz,T — plot My index 4, Mz index 5 if 6+ cols
-    i_my, i_mz = 4, 5
+    # Optimisation resultants are [N, My, Mz, T, Vy, Vz, B].
+    i_my, i_mz = 1, 2
     if R0.shape[1] < 6:
         i_my, i_mz = min(3, R0.shape[1] - 1), min(4, R0.shape[1] - 1)
     zz, my = _align_z(z, R0[:, i_my])

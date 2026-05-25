@@ -56,7 +56,10 @@ from blade_precompute.orchestration.precompute.material_library import (
     normalize_logical_subcomponent_material_map,
     validate_material_library_bindings,
 )
-from blade_precompute.orchestration.precompute.stages import section_shell_model_skipped_outputs
+from blade_precompute.orchestration.precompute.stages import (
+    _station_resultants_for_shell_from_beam,
+    section_shell_model_skipped_outputs,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parent
 
@@ -475,43 +478,7 @@ def main() -> int:
 
     def _extract_station_resultants(bm_out: BeamModelOutputs) -> dict[int, tuple]:
         """Extract per-station (N, Vy, Vz, My, Mz, T) from beam result JSON."""
-        import json as _json
-        try:
-            with open(bm_out.result_json, "r", encoding="utf-8") as _f:
-                _beam_data = _json.load(_f)
-            _resultants = np.asarray(_beam_data.get("resultants", []), dtype=np.float64)
-            _z_out = _beam_data.get("z_stations_out", None)
-            if _resultants.ndim == 2 and _resultants.shape[1] >= 6:
-                # resultants shape: (n_elem, 7) — columns: N, My, Mz, T, Vy, Vz, B
-                # reorder to (N, Vy, Vz, My, Mz, T) matching shell model convention
-                _col_N, _col_My, _col_Mz, _col_T, _col_Vy, _col_Vz = 0, 1, 2, 3, 4, 5
-                n_sh = int(inp_struct.span_r_z_m.shape[0])
-                _z_struct = np.asarray(inp_struct.span_r_z_m, dtype=np.float64)
-                _n_elem = _resultants.shape[0]
-                # elem midpoint z: uniform from 0..n_elem-1 in absence of z_out
-                if _z_out is not None:
-                    _z_elem = np.asarray(_z_out, dtype=np.float64).ravel()
-                    if _z_elem.size != _n_elem:
-                        _z_elem = np.linspace(float(_z_struct[0]), float(_z_struct[-1]), _n_elem)
-                else:
-                    _z_elem = np.linspace(float(_z_struct[0]), float(_z_struct[-1]), _n_elem)
-                out_map: dict[int, tuple] = {}
-                for _si in range(n_sh):
-                    _zi = float(_z_struct[_si])
-                    _idx = int(np.argmin(np.abs(_z_elem - _zi)))
-                    _row = _resultants[_idx]
-                    out_map[_si] = (
-                        float(_row[_col_N]),
-                        float(_row[_col_Vy]),
-                        float(_row[_col_Vz]),
-                        float(_row[_col_My]),
-                        float(_row[_col_Mz]),
-                        float(_row[_col_T]),
-                    )
-                return out_map
-        except Exception:
-            pass
-        return {}
+        return _station_resultants_for_shell_from_beam(bm_out, inp_struct)
 
     def _run_shell_stage(
         bm_out: BeamModelOutputs,
