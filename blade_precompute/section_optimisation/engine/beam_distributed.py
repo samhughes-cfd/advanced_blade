@@ -14,6 +14,7 @@ from blade_precompute.global_beam_model.engine.axial_loading import (
     q_x_distributed,
 )
 from blade_precompute.global_beam_model.core.types import BeamLoads, BoundaryCondition, SolverOptions
+from blade_precompute.global_beam_model.engine.constitutive import beam_resultants_to_section_recovery_order
 from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
 from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 from blade_precompute.global_beam_model.engine.postprocess import sample_resultants_at_z
@@ -190,8 +191,11 @@ class GlobalBeamResultantDriver:
                 nodal_R[i] = rotmat_from_small_curvature(np.asarray(blade_geometry.kappa0[i], dtype=np.float64))
 
         tip_disp = np.asarray(res.nodal_positions[-1] - model.X_ref[-1], dtype=np.float64)
+        # The Tier-A beam solver emits [N, Vy, Vz, My, Mz, T, B]; section optimisation
+        # consumers use K7/recovery order [N, My, Mz, T, Vy, Vz, B].
+        R_section = beam_resultants_to_section_recovery_order(R_at).astype(np.float64)
         return PrescribedResultantBeamState(
-            resultants=R_at.astype(np.float64),
+            resultants=R_section,
             nodal_R=nodal_R.astype(np.float64),
             nodal_R_source="global_beam_tier_a",
             beam_solve=res,
