@@ -321,7 +321,7 @@ def mitc4_shell_fi_batch(
             for pi, panel in enumerate(panels):
                 if pi >= len(all_res):
                     continue
-                pnm = str(getattr(panel, "name", f"p{pi}"))
+                pnm = str(getattr(panel, "label", None) or getattr(panel, "name", f"p{pi}"))
                 ci = _ci_for_mitc4_panel(pnm, comp_subs)
                 if ci is not None and 0 <= ci < n_c and ci < len(comp_subs):
                     lam = comp_subs[ci].material

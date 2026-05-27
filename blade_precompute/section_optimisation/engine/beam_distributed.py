@@ -14,6 +14,9 @@ from blade_precompute.global_beam_model.engine.axial_loading import (
     q_x_distributed,
 )
 from blade_precompute.global_beam_model.core.types import BeamLoads, BoundaryCondition, SolverOptions
+from blade_precompute.global_beam_model.engine.constitutive import (
+    beam_resultants_to_section_recovery_order,
+)
 from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
 from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 from blade_precompute.global_beam_model.engine.postprocess import sample_resultants_at_z
@@ -177,6 +180,7 @@ class GlobalBeamResultantDriver:
         R_at = sample_resultants_at_z(z, res.z_stations_out, res.resultants)
         if R_at.shape[0] != n_s or R_at.shape[1] != 7:
             raise ValueError(f"Sampled resultants have shape {R_at.shape}, expected ({n_s}, 7).")
+        resultants = beam_resultants_to_section_recovery_order(R_at)
 
         z_nodal = res.z_nodal_out
         if z_nodal is not None and res.nodal_R is not None and z_nodal.size == res.nodal_R.shape[0]:
@@ -191,7 +195,7 @@ class GlobalBeamResultantDriver:
 
         tip_disp = np.asarray(res.nodal_positions[-1] - model.X_ref[-1], dtype=np.float64)
         return PrescribedResultantBeamState(
-            resultants=R_at.astype(np.float64),
+            resultants=resultants.astype(np.float64),
             nodal_R=nodal_R.astype(np.float64),
             nodal_R_source="global_beam_tier_a",
             beam_solve=res,
