@@ -11,6 +11,7 @@ import pytest
 from blade_precompute.orchestration import PrecomputeOrchestrationContext
 from blade_precompute.orchestration.component_materials import ComponentMaterialsMap
 from blade_precompute.orchestration.precompute import (
+    BeamModelOutputs,
     GridConfig,
     LinspaceSpec,
     PrecomputeInputs,
@@ -19,7 +20,10 @@ from blade_precompute.orchestration.precompute import (
     SectionShellModelStage,
 )
 from blade_precompute.orchestration.precompute.shell_spars import section_shell_spars_from_layout
-from blade_precompute.orchestration.precompute.stages import section_shell_model_skipped_outputs
+from blade_precompute.orchestration.precompute.stages import (
+    _station_resultants_for_shell_from_beam,
+    section_shell_model_skipped_outputs,
+)
 from blade_precompute.orchestration.system_layout import resolve_system_type
 
 
@@ -126,6 +130,35 @@ def test_section_shell_model_skipped_outputs_writes_summary(tmp_path: Path) -> N
     assert '"skipped": true' in data
     assert "run_section_shell_model=false" in data
     assert "station_result_json_paths" in data
+
+
+def test_station_resultants_for_shell_keeps_beam_resultant_order(tmp_path: Path) -> None:
+    result_json = tmp_path / "beam_result.json"
+    result_json.write_text(
+        json.dumps(
+            {
+                "z_stations_out": [0.0, 4.0, 8.0],
+                "resultants": [
+                    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+                    [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0],
+                    [100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0],
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = BeamModelOutputs(
+        result_json=result_json,
+        png_paths=[],
+        beam_n_iterations=1,
+        beam_converged=True,
+    )
+
+    station_res = _station_resultants_for_shell_from_beam(out, _dummy_inputs())
+
+    assert station_res[0] == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    assert station_res[1] == (10.0, 20.0, 30.0, 40.0, 50.0, 60.0)
+    assert station_res[2] == (100.0, 200.0, 300.0, 400.0, 500.0, 600.0)
 
 
 def test_grid_config_section_shell_fields() -> None:

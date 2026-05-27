@@ -253,6 +253,7 @@ def solve_static_with_warm_start_fallback(
 @dataclass
 class PrescribedResultantBeamState:
     resultants: NDArray[np.float64]
+    """Section recovery order ``[N, My, Mz, T, Vy, Vz, B]`` consumed by K7/FI evaluators."""
     nodal_R: NDArray[np.float64]
     nodal_R_source: str = "small_curvature_kappa0"
     # Populated by GlobalBeamResultantDriver for tip deflection / provenance
