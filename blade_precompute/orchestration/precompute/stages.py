@@ -1375,7 +1375,9 @@ def _station_resultants_for_shell_from_beam(
         z_out = beam_data.get("z_stations_out", None)
         if resultants.ndim != 2 or resultants.shape[1] < 6:
             return {}
-        col_N, col_My, col_Mz, col_T, col_Vy, col_Vz = 0, 1, 2, 3, 4, 5
+        # Beam JSON stores solver-native columns: N, Vy, Vz, My, Mz, T, B.
+        # The section-shell stage consumes (N, Vy, Vz, My, Mz, T).
+        col_N, col_Vy, col_Vz, col_My, col_Mz, col_T = 0, 1, 2, 3, 4, 5
         n_sh = int(np.asarray(inp_struct.span_r_z_m, dtype=np.float64).ravel().shape[0])
         z_struct = np.asarray(inp_struct.span_r_z_m, dtype=np.float64)
         n_elem = int(resultants.shape[0])

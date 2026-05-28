@@ -252,6 +252,8 @@ def solve_static_with_warm_start_fallback(
 
 @dataclass
 class PrescribedResultantBeamState:
+    """Beam driver output normalised to section/K7 order ``[N, My, Mz, T, Vy, Vz, B]``."""
+
     resultants: NDArray[np.float64]
     nodal_R: NDArray[np.float64]
     nodal_R_source: str = "small_curvature_kappa0"

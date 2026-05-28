@@ -482,9 +482,9 @@ def main() -> int:
             _resultants = np.asarray(_beam_data.get("resultants", []), dtype=np.float64)
             _z_out = _beam_data.get("z_stations_out", None)
             if _resultants.ndim == 2 and _resultants.shape[1] >= 6:
-                # resultants shape: (n_elem, 7) — columns: N, My, Mz, T, Vy, Vz, B
-                # reorder to (N, Vy, Vz, My, Mz, T) matching shell model convention
-                _col_N, _col_My, _col_Mz, _col_T, _col_Vy, _col_Vz = 0, 1, 2, 3, 4, 5
+                # Beam JSON stores solver-native columns: N, Vy, Vz, My, Mz, T, B.
+                # The shell stage consumes (N, Vy, Vz, My, Mz, T).
+                _col_N, _col_Vy, _col_Vz, _col_My, _col_Mz, _col_T = 0, 1, 2, 3, 4, 5
                 n_sh = int(inp_struct.span_r_z_m.shape[0])
                 _z_struct = np.asarray(inp_struct.span_r_z_m, dtype=np.float64)
                 _n_elem = _resultants.shape[0]

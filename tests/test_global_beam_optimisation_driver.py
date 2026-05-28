@@ -9,6 +9,9 @@ import numpy as np
 from blade_precompute.global_beam_model.api import BeamAnalysis
 from blade_precompute.global_beam_model.core.types import SolverOptions
 from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
+from blade_precompute.global_beam_model.engine.constitutive import (
+    beam_resultants_to_section_recovery_order,
+)
 from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 from blade_precompute.global_beam_model.engine.postprocess import sample_resultants_at_z
 from blade_precompute.global_beam_model.engine.solver import solve_static
@@ -125,7 +128,12 @@ def test_global_beam_driver_matches_direct_solve() -> None:
         curves, n_beam_nodes=n_beam, solver_options=opt
     )
     st = drv.drive(K7, ex, bg, K6_stack=K6)
-    np.testing.assert_allclose(st.resultants, R_direct, rtol=1e-4, atol=0.1)
+    np.testing.assert_allclose(
+        st.resultants,
+        beam_resultants_to_section_recovery_order(R_direct),
+        rtol=1e-4,
+        atol=0.1,
+    )
 
 
 def test_prescribed_driver_ignores_k6_kwargs() -> None:
