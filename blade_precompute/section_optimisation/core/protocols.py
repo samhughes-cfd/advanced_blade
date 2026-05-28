@@ -12,7 +12,10 @@ from .types import ExtremeLoads, OptimBladeGeometry
 
 @runtime_checkable
 class BeamResultantStateProtocol(Protocol):
-    """Result object returned by a beam resultant driver."""
+    """Result object returned by a beam resultant driver.
+
+    ``resultants`` must be in section/K7 order ``[N, My, Mz, T, Vy, Vz, B]``.
+    """
 
     resultants: NDArray[np.float64]
     nodal_R: NDArray[np.float64]
