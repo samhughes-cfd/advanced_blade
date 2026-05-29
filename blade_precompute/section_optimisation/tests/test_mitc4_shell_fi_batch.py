@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from blade_precompute.section_optimisation.core.types import OptimBladeGeometry
-from blade_precompute.section_optimisation.engine.mitc4_eval import mitc4_shell_fi_batch
+from blade_precompute.section_optimisation.engine.mitc4_eval import _spar_x_metres, mitc4_shell_fi_batch
 from blade_precompute.section_properties.engine.geometry import SectionDefinition, SubcomponentGeometry
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import OrthotropicPly
@@ -56,6 +56,14 @@ def _one_station_bg() -> OptimBladeGeometry:
         airfoil_profiles=[air],
         web_positions=np.array([-0.3, 0.3], dtype=np.float64),
         subcomponent_materials={},
+    )
+
+
+def test_spar_x_metres_converts_half_chord_web_positions() -> None:
+    """OptimBladeGeometry web positions are centred at half-chord, while MITC4 expects LE-based metres."""
+    np.testing.assert_allclose(
+        _spar_x_metres(np.array([-0.35, 0.0, 0.35], dtype=np.float64), 2.0),
+        [0.3, 1.0, 1.7],
     )
 
 

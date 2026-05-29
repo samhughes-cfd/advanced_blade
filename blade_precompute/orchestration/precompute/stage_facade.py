@@ -197,6 +197,7 @@ class BeamModelStage(_StageBase):
                 shell_k7_outer_max_iter=int(self._params.shell_k7_outer_max_iter),
                 shell_k7_tol_rel=float(self._params.shell_k7_tol_rel),
                 shell_k7_n_elements_per_panel=self._params.shell_k7_n_elements_per_panel,
+                axial_loading=self._params.axial_loading,
             )
         self._executed = True
         return self

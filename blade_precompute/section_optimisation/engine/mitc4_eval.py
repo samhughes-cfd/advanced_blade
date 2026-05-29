@@ -29,7 +29,8 @@ def _airfoil_xy_from_profile(prof: Any) -> NDArray[np.float64]:
 
 def _spar_x_metres(web_positions: NDArray[np.float64], chord_m: float) -> list[float]:
     w = np.asarray(web_positions, dtype=np.float64).ravel()
-    return [float(xi * float(chord_m)) for xi in w]
+    chord = float(chord_m)
+    return [float((xi + 0.5) * chord) for xi in w]
 
 
 def _first_skin_laminate(section_def: SectionDefinition) -> LaminateDefinition | None:

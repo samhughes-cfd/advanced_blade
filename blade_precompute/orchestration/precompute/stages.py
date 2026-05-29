@@ -944,6 +944,69 @@ def section_properties_impl(
     )
 
 
+def _blend_shell_k7_with_strip(
+    K7_shell: NDArray[np.float64],
+    K7_strip: NDArray[np.float64],
+    per_station: Sequence[Mapping[str, Any]],
+    relax: float,
+) -> NDArray[np.float64]:
+    """Blend only successful shell-homogenised stations; failed stations keep strip K7."""
+    shell = np.asarray(K7_shell, dtype=np.float64)
+    strip = np.asarray(K7_strip, dtype=np.float64)
+    if shell.shape != strip.shape:
+        raise ValueError(f"K7_shell shape {shell.shape} must match K7_strip shape {strip.shape}.")
+    out = strip.copy()
+    w = float(np.clip(relax, 0.0, 1.0))
+    for row in per_station:
+        if not bool(row.get("ok", False)):
+            continue
+        si = int(row.get("station_index", -1))
+        if 0 <= si < out.shape[0]:
+            out[si] = w * shell[si] + (1.0 - w) * strip[si]
+    return out
+
+
+def _add_axial_loading_to_distributed_q(
+    distributed_q: NDArray[np.float64],
+    z_mid: NDArray[np.float64],
+    inp: PrecomputeInputs,
+    sec: SectionPropertiesOutputs,
+    axial_loading: Any | None,
+    *,
+    span_axis: int = 2,
+) -> NDArray[np.float64]:
+    """Add centrifugal/gravity axial line load to the beam span axis when configured."""
+    if axial_loading is None:
+        return distributed_q
+    from blade_precompute.global_beam_model.engine.axial_loading import (
+        AxialLoadingConfig,
+        q_x_distributed,
+    )
+
+    if not isinstance(axial_loading, AxialLoadingConfig) or not bool(axial_loading.enabled):
+        return distributed_q
+    sa = int(span_axis)
+    if sa not in (0, 1, 2):
+        raise ValueError(f"span_axis must be 0..2, got {sa}.")
+    zq = np.asarray(z_mid, dtype=np.float64).ravel()
+    z_st = np.asarray(sec.station_z, dtype=np.float64).ravel()
+    if z_st.size < 1:
+        return distributed_q
+    mu_st = np.array([float(r.mass_per_length) for r in sec.section_results], dtype=np.float64)
+    if mu_st.shape[0] != z_st.shape[0]:
+        raise ValueError("section_results mass_per_length count must match section station_z count.")
+    span_z = np.asarray(inp.span_r_z_m, dtype=np.float64).ravel()
+    radial = np.asarray(inp.radial_r_m, dtype=np.float64).ravel()
+    if span_z.size != radial.size:
+        raise ValueError("radial_r_m length must match span_r_z_m for axial loading.")
+    mu_q = np.interp(zq, z_st, mu_st)
+    r_q = np.interp(zq, span_z, radial)
+    qx = q_x_distributed(zq, r_q, mu_q, axial_loading)
+    out = np.asarray(distributed_q, dtype=np.float64).copy()
+    out[:, sa] = out[:, sa] + qx
+    return out
+
+
 def beam_model_impl(
     inp: PrecomputeInputs,
     sec: SectionPropertiesOutputs,
@@ -969,6 +1032,7 @@ def beam_model_impl(
     shell_k7_outer_max_iter: int = 1,
     shell_k7_tol_rel: float = 1e-3,
     shell_k7_n_elements_per_panel: int | None = None,
+    axial_loading: Any | None = None,
 ) -> BeamModelOutputs:
     stage_dir = subdir_override if subdir_override is not None else Path("global_beam_model")
     out_stage = (out_dir / stage_dir).resolve()
@@ -1046,7 +1110,7 @@ def beam_model_impl(
                     n_elements_per_panel=int(n_ep),
                     run_log=run_log,
                 )
-                K7_next = w_blend * K7_shell + (1.0 - w_blend) * K7_strip
+                K7_next = _blend_shell_k7_with_strip(K7_shell, K7_strip, per_st, w_blend)
                 rel_diff = float(
                     np.linalg.norm(K7_next - K7_work)
                     / max(float(np.linalg.norm(K7_work)), 1e-300)
@@ -1114,6 +1178,14 @@ def beam_model_impl(
     distributed_q = np.zeros((n_elem, 3), dtype=np.float64)
     distributed_q[:, 1] = qy
     distributed_q[:, 2] = qz
+    distributed_q = _add_axial_loading_to_distributed_q(
+        distributed_q,
+        z_mid,
+        inp,
+        sec,
+        axial_loading,
+        span_axis=int(getattr(model, "span_axis", 2)),
+    )
 
     loads = BeamLoads(
         nodal_F=np.zeros((n_nodes, 3), dtype=np.float64),

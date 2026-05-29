@@ -471,6 +471,7 @@ def main() -> int:
             shell_k7_outer_max_iter=int(grid_cfg.shell_k7_outer_max_iter),
             shell_k7_tol_rel=float(grid_cfg.shell_k7_tol_rel),
             shell_k7_n_elements_per_panel=_k7_nep,
+            axial_loading=axial_loading_cfg,
         )
 
     def _extract_station_resultants(bm_out: BeamModelOutputs) -> dict[int, tuple]:
