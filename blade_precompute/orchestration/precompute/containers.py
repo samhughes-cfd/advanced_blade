@@ -313,6 +313,7 @@ class BeamModelParams:
     shell_k7_outer_max_iter: int = 1
     shell_k7_tol_rel: float = 1e-3
     shell_k7_n_elements_per_panel: int | None = None
+    axial_loading: Any | None = None
 
 
 @dataclass(frozen=True)
