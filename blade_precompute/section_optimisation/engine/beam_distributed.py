@@ -14,6 +14,7 @@ from blade_precompute.global_beam_model.engine.axial_loading import (
     q_x_distributed,
 )
 from blade_precompute.global_beam_model.core.types import BeamLoads, BoundaryCondition, SolverOptions
+from blade_precompute.global_beam_model.engine.constitutive import beam_resultants_to_section_recovery_order
 from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
 from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 from blade_precompute.global_beam_model.engine.postprocess import sample_resultants_at_z
@@ -174,9 +175,12 @@ class GlobalBeamResultantDriver:
 
         if res.z_stations_out is None or res.resultants is None or res.z_stations_out.size < 1:
             raise RuntimeError("Global beam solve returned empty resultants for sampling.")
-        R_at = sample_resultants_at_z(z, res.z_stations_out, res.resultants)
-        if R_at.shape[0] != n_s or R_at.shape[1] != 7:
-            raise ValueError(f"Sampled resultants have shape {R_at.shape}, expected ({n_s}, 7).")
+        R_beam = sample_resultants_at_z(z, res.z_stations_out, res.resultants)
+        if R_beam.shape[0] != n_s or R_beam.shape[1] != 7:
+            raise ValueError(f"Sampled resultants have shape {R_beam.shape}, expected ({n_s}, 7).")
+        # Tier-A beam emits [N, Vy, Vz, My, Mz, T, B]; section optimisation
+        # consumers use K7/recovery order [N, My, Mz, T, Vy, Vz, B].
+        R_at = beam_resultants_to_section_recovery_order(R_beam)
 
         z_nodal = res.z_nodal_out
         if z_nodal is not None and res.nodal_R is not None and z_nodal.size == res.nodal_R.shape[0]:
