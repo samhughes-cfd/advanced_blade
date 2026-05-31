@@ -134,7 +134,7 @@ def build_recovery_cache(
     # L_rec / L_iso were built per unit beam STRAIN (mode j → ply stress). The public
     # RecoveryCache API takes beam RESULTANTS (forces/moments), so bake in K7_inv here
     # so that downstream callers can pass resultants directly.
-    k7_inv = np.linalg.inv(k7)  # (n_s, 7, 7)
+    k7_inv = np.linalg.pinv(k7, rcond=1e-12)  # (n_s, 7, 7)
     l_rec = np.einsum("spkqm,smj->spkqj", l_rec, k7_inv, optimize=True)
     l_iso = np.einsum("spqm,smj->spqj", l_iso, k7_inv, optimize=True)
 

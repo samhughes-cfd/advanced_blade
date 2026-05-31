@@ -4,6 +4,7 @@ import dataclasses
 
 import numpy as np
 
+from blade_precompute.section_optimisation.engine.evaluator import _beam7_to_reference_forces6
 from blade_precompute.section_properties.engine.geometry import SectionDefinition, SubcomponentGeometry
 from blade_precompute.section_properties.engine.laminate import LaminateDefinition
 from blade_precompute.section_properties.engine.materials import OrthotropicPly
@@ -50,6 +51,14 @@ def test_nxy_cr_positive_finite() -> None:
     d11, d12, d22, d66 = 120.0, 8.0, 90.0, 35.0
     nxy = _Nxy_cr(d11, d12, d22, d66, a=0.5, b=0.06)
     assert np.isfinite(nxy) and nxy > 0.0
+
+
+def test_panel_buckling_force_adapter_preserves_section_order() -> None:
+    r_section = np.array([1.0, 20.0, 300.0, 4000.0, 50.0, 600.0, 7.0])
+    np.testing.assert_allclose(
+        _beam7_to_reference_forces6(r_section),
+        np.array([1.0, 20.0, 300.0, 4000.0, 50.0, 600.0]),
+    )
 
 
 def test_assess_panel_section_aggregation() -> None:

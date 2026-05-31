@@ -15,6 +15,7 @@ from blade_precompute.global_beam_model.engine.axial_loading import (
 )
 from blade_precompute.global_beam_model.core.types import BeamLoads, BoundaryCondition, SolverOptions
 from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
+from blade_precompute.global_beam_model.engine.constitutive import beam_resultants_to_section_recovery_order
 from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 from blade_precompute.global_beam_model.engine.postprocess import sample_resultants_at_z
 from blade_precompute.global_beam_model.engine.solver import solve_static
@@ -172,9 +173,12 @@ class GlobalBeamResultantDriver:
         opt = self.solver_options if self.solver_options is not None else default_global_beam_solver_options()
         res = solve_static(model, loads, options=opt)
 
+        if not bool(getattr(res, "converged", False)):
+            raise RuntimeError("Global beam solve did not converge; refusing to sample partial resultants.")
         if res.z_stations_out is None or res.resultants is None or res.z_stations_out.size < 1:
             raise RuntimeError("Global beam solve returned empty resultants for sampling.")
-        R_at = sample_resultants_at_z(z, res.z_stations_out, res.resultants)
+        R_at_beam = sample_resultants_at_z(z, res.z_stations_out, res.resultants)
+        R_at = beam_resultants_to_section_recovery_order(R_at_beam)
         if R_at.shape[0] != n_s or R_at.shape[1] != 7:
             raise ValueError(f"Sampled resultants have shape {R_at.shape}, expected ({n_s}, 7).")
 

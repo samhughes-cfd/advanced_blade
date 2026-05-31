@@ -38,7 +38,7 @@ from .engine.section_properties import print_section_summary
 from .engine.solver import MidsurfaceSectionSolver
 from .engine.implicit_section_geometry import GeometryConstraintSpec, SDFSectionSolver, build_section_from_constraints
 from .io.external_results import ExternalSectionResultSolver, section_result_from_mapping
-from .io.section_loader import load_section_from_spec
+from .io.section_loader import load_section_from_spec, load_section_from_yaml
 
 
 def solve_section(section: SectionDefinition) -> SectionSolveResult:
@@ -94,6 +94,7 @@ __all__ = [
     "solve_section",
     "section_props_from_solve",
     "load_section_from_spec",
+    "load_section_from_yaml",
     "section_result_from_mapping",
     "ExternalSectionResultSolver",
     "print_section_summary",

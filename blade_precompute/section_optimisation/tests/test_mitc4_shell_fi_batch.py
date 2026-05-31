@@ -65,7 +65,7 @@ def test_mitc4_shell_fi_batch_maps_nm_to_hashin_envelope(mock_run) -> None:
 
     def _make_bundle() -> object:
         pan = SimpleNamespace()
-        pan.name = "USkin C1"
+        pan.label = "USkin C1"
         r0 = ShellPanelResultants(
             Nx=5e3,
             Ny=0.0,

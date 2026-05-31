@@ -9,6 +9,7 @@ import numpy as np
 from blade_precompute.global_beam_model.api import BeamAnalysis
 from blade_precompute.global_beam_model.core.types import SolverOptions
 from blade_precompute.global_beam_model.engine.blade_geometry import BladeGeometry
+from blade_precompute.global_beam_model.engine.constitutive import beam_resultants_to_section_recovery_order
 from blade_precompute.global_beam_model.engine.interp import stations_from_arrays
 from blade_precompute.global_beam_model.engine.postprocess import sample_resultants_at_z
 from blade_precompute.global_beam_model.engine.solver import solve_static
@@ -110,7 +111,9 @@ def test_global_beam_driver_matches_direct_solve() -> None:
     loads = build_beam_loads_distributed(geom, model, curves)
     res = solve_static(model, loads, options=opt)
     assert res.z_stations_out is not None
-    R_direct = sample_resultants_at_z(z, res.z_stations_out, res.resultants)
+    R_direct = beam_resultants_to_section_recovery_order(
+        sample_resultants_at_z(z, res.z_stations_out, res.resultants)
+    )
 
     ex = ExtremeLoads(
         z_stations=z,
