@@ -116,7 +116,10 @@ def test_fused_ply_and_iso_match_explicit_chain_identity_R(tmp_path):
     iso_t = np.stack([res.iso_thickness for res in results], axis=0)
     sigma_iso_ref = iso_res / np.maximum(iso_t[:, :, None], 1e-18)
     sigma_iso = cache.recover_iso_stresses(r)
-    np.testing.assert_allclose(sigma_iso, sigma_iso_ref, rtol=1e-10, atol=1e-10)
+    if sigma_iso.shape[2] == 0:
+        assert sigma_iso.shape == (r.shape[0], len(results), 0, 3)
+    else:
+        np.testing.assert_allclose(sigma_iso, sigma_iso_ref, rtol=1e-10, atol=1e-10)
 
     path = tmp_path / "cache.npz"
     save_cache(cache, str(path))
