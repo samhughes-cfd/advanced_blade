@@ -126,6 +126,11 @@ def build_recovery_operator_bundle(
                     eps_k = eps0 + float(zp[p, k]) * kap
                     l_sec[s, p, k, :, j] = qb[p, k] @ eps_k
 
+    k7 = np.stack([section_results[s].K7 for s in range(n_s)], axis=0)
+    k7_inv = np.linalg.pinv(k7, rcond=1e-12)
+    h_eps = np.einsum("spam,smj->spaj", h_eps, k7_inv, optimize=True)
+    l_sec = np.einsum("spkam,smj->spkaj", l_sec, k7_inv, optimize=True)
+
     d_z = _first_derivative_matrix(z_stations)
     g_if = (
         _build_interlaminar_transfer(n_s, n_comp, n_ply_max)

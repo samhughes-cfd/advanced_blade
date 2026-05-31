@@ -8,6 +8,9 @@ from blade_precompute.section_optimisation.engine.section_builder import Section
 from blade_precompute.section_optimisation.core.types import DesignVector, OptimBladeGeometry
 from blade_utilities.recovery import (
     RecoveryCache,
+    apply_section_stress_operator,
+    apply_strain_operator,
+    build_recovery_operator_bundle,
     build_recovery_cache,
     load_cache,
     plane_stress_voigt_from_R,
@@ -93,10 +96,13 @@ def test_fused_ply_and_iso_match_explicit_chain_identity_R(tmp_path):
     r = rng.standard_normal((5, len(results), 7)).astype(np.float64)
     sig_fused = cache.recover_ply_stresses(r)
 
+    k7 = np.stack([res.K7 for res in results], axis=0)
+    k7_inv = np.linalg.pinv(k7, rcond=1e-12)
+    strains = np.einsum("smj,csj->csm", k7_inv, r, optimize=True)
     comp_basis = np.stack([res.composite_resultant_basis for res in results], axis=0)
     iso_basis = np.stack([res.isotropic_resultant_basis for res in results], axis=0)
-    comp_res = np.einsum("csm,spmr->cspr", r, comp_basis, optimize=True)
-    iso_res = np.einsum("csm,spmr->cspr", r, iso_basis, optimize=True)
+    comp_res = np.einsum("csm,spmr->cspr", strains, comp_basis, optimize=True)
+    iso_res = np.einsum("csm,spmr->cspr", strains, iso_basis, optimize=True)
     ABD_inv = np.stack([res.ABD_inv for res in results], axis=0)
     Q_bar = np.stack([res.Q_bar for res in results], axis=0)
     T_ply = np.stack([res.T_ply for res in results], axis=0)
@@ -115,6 +121,37 @@ def test_fused_ply_and_iso_match_explicit_chain_identity_R(tmp_path):
     loaded = load_cache(str(path))
     np.testing.assert_allclose(loaded.L_rec, cache.L_rec)
     np.testing.assert_allclose(loaded.L_iso, cache.L_iso)
+
+
+def test_recovery_operator_bundle_accepts_resultants_not_strains():
+    bg, dv = _tiny_blade(3)
+    sections = SectionBuilder.build(dv, bg)
+    solver = MidsurfaceSectionSolver()
+    results = [solver.solve_one(s) for s in sections]
+    nodal_R = np.stack([np.eye(3)] * len(results), axis=0)
+    bundle = build_recovery_operator_bundle(
+        section_results=results,
+        z_stations=bg.z_stations,
+        nodal_R=nodal_R,
+        section0_subcomponents=sections[0].subcomponents,
+    )
+
+    rng = np.random.default_rng(2)
+    r = rng.standard_normal((4, len(results), 7)).astype(np.float64)
+    k7 = np.stack([res.K7 for res in results], axis=0)
+    k7_inv = np.linalg.pinv(k7, rcond=1e-12)
+    modal_strains = np.einsum("smj,csj->csm", k7_inv, r, optimize=True)
+
+    comp_basis = np.stack([res.composite_resultant_basis for res in results], axis=0)
+    comp_res = np.einsum("csm,spmr->cspr", modal_strains, comp_basis, optimize=True)
+    ABD_inv = np.stack([res.ABD_inv for res in results], axis=0)
+    Q_bar = np.stack([res.Q_bar for res in results], axis=0)
+    z_ply = np.stack([res.z_ply for res in results], axis=0)
+    strain_ref = np.einsum("spab,cspb->cspa", ABD_inv, comp_res, optimize=True)
+    stress_ref = clpt_ply_stresses_section_frame(comp_res, ABD_inv, Q_bar, z_ply)
+
+    np.testing.assert_allclose(apply_strain_operator(bundle, r), strain_ref, rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(apply_section_stress_operator(bundle, r), stress_ref, rtol=1e-9, atol=1e-9)
 
 
 def test_plane_stress_rotation_matches_tensor_formula():

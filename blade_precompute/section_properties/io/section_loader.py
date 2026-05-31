@@ -104,6 +104,20 @@ def load_section_from_spec(
     )
 
 
+def load_section_from_yaml(
+    path: str | Path,
+    *,
+    ply_library: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> SectionDefinition:
+    """Backward-compatible YAML loader alias for existing callers."""
+    warnings.warn(
+        "load_section_from_yaml() is deprecated; use load_section_from_spec().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return load_section_from_spec(path, ply_library=ply_library)
+
+
 def _material_from_block(
     name: str,
     spec: Mapping[str, Any],
