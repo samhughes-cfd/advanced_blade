@@ -49,15 +49,12 @@ from ..core.types import DesignEvaluation, DesignProblem, DesignVector
 # ---------------------------------------------------------------------------
 
 def _beam7_to_reference_forces6(res7: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Map beam seven-vector `[N,Vy,Vz,My,Mz,T,B]` to K6 RHS `[N,My,Mz,T,Vy,Vz]`."""
+    """Return K6 RHS ``[N, My, Mz, T, Vy, Vz]`` from normalized section-order resultants."""
 
     r = np.asarray(res7, dtype=np.float64).ravel()
     if r.size < 6:
         return np.zeros(6, dtype=np.float64)
-    return np.array(
-        [r[0], r[3], r[4], r[5], r[1], r[2]],
-        dtype=np.float64,
-    )
+    return np.array(r[:6], dtype=np.float64)
 
 
 def _compute_panel_buckling_fi(
