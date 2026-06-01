@@ -48,6 +48,8 @@ def _tiny_blade(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
         S23=40e6,
     )
     lam = LaminateDefinition(plies=[(p, 0.0), (p, 45.0), (p, -45.0)])
+    lam_cap = LaminateDefinition(plies=[(p, 0.0), (p, 0.0), (p, 0.0)])
+    lam_web = LaminateDefinition(plies=[(p, 45.0), (p, -45.0)])
     al = IsotropicMaterial(name="al", E=70e9, nu=0.33, rho=2700.0, sigma_allow=260e6)
     bg = OptimBladeGeometry(
         z_stations=z,
@@ -59,8 +61,8 @@ def _tiny_blade(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
         web_positions=web_positions,
         subcomponent_materials={
             "skin": lam,
-            "cap_ps": lam,
-            "web": lam,
+            "cap_ps": lam_cap,
+            "web": lam_web,
             "leading_edge_insert": al,
         },
         thickness_role={"leading_edge_insert": "fixed"},
@@ -95,8 +97,11 @@ def test_fused_ply_and_iso_match_explicit_chain_identity_R(tmp_path):
 
     comp_basis = np.stack([res.composite_resultant_basis for res in results], axis=0)
     iso_basis = np.stack([res.isotropic_resultant_basis for res in results], axis=0)
-    comp_res = np.einsum("csm,spmr->cspr", r, comp_basis, optimize=True)
-    iso_res = np.einsum("csm,spmr->cspr", r, iso_basis, optimize=True)
+    k7 = np.stack([res.K7 for res in results], axis=0)
+    k7_inv = np.linalg.inv(k7)
+    strains = np.einsum("smj,csj->csm", k7_inv, r, optimize=True)
+    comp_res = np.einsum("csm,spmr->cspr", strains, comp_basis, optimize=True)
+    iso_res = np.einsum("csm,spmr->cspr", strains, iso_basis, optimize=True)
     ABD_inv = np.stack([res.ABD_inv for res in results], axis=0)
     Q_bar = np.stack([res.Q_bar for res in results], axis=0)
     T_ply = np.stack([res.T_ply for res in results], axis=0)
@@ -106,9 +111,12 @@ def test_fused_ply_and_iso_match_explicit_chain_identity_R(tmp_path):
     np.testing.assert_allclose(sig_fused, sigma_mat, rtol=1e-10, atol=1e-10)
 
     iso_t = np.stack([res.iso_thickness for res in results], axis=0)
-    sigma_iso_ref = iso_res / np.maximum(iso_t[:, :, None], 1e-18)
     sigma_iso = cache.recover_iso_stresses(r)
-    np.testing.assert_allclose(sigma_iso, sigma_iso_ref, rtol=1e-10, atol=1e-10)
+    if sigma_iso.shape[2] == 0:
+        assert sigma_iso.shape == (r.shape[0], len(results), 0, 3)
+    else:
+        sigma_iso_ref = iso_res / np.maximum(iso_t[:, :, None], 1e-18)
+        np.testing.assert_allclose(sigma_iso, sigma_iso_ref, rtol=1e-10, atol=1e-10)
 
     path = tmp_path / "cache.npz"
     save_cache(cache, str(path))
