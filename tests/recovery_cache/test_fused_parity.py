@@ -49,6 +49,7 @@ def _tiny_blade(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
     )
     lam = LaminateDefinition(plies=[(p, 0.0), (p, 45.0), (p, -45.0)])
     lam_cap = LaminateDefinition(plies=[(p, 0.0), (p, 0.0), (p, 0.0)])
+    lam_web = LaminateDefinition(plies=[(p, 45.0), (p, -45.0)])
     al = IsotropicMaterial(name="al", E=70e9, nu=0.33, rho=2700.0, sigma_allow=260e6)
     bg = OptimBladeGeometry(
         z_stations=z,
@@ -61,7 +62,7 @@ def _tiny_blade(n_s: int = 3) -> tuple[OptimBladeGeometry, DesignVector]:
         subcomponent_materials={
             "skin": lam,
             "cap_ps": lam_cap,
-            "web": lam,
+            "web": lam_web,
             "leading_edge_insert": al,
         },
         thickness_role={"leading_edge_insert": "fixed"},
