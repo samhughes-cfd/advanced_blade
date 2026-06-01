@@ -97,8 +97,11 @@ def test_fused_ply_and_iso_match_explicit_chain_identity_R(tmp_path):
 
     comp_basis = np.stack([res.composite_resultant_basis for res in results], axis=0)
     iso_basis = np.stack([res.isotropic_resultant_basis for res in results], axis=0)
-    comp_res = np.einsum("csm,spmr->cspr", r, comp_basis, optimize=True)
-    iso_res = np.einsum("csm,spmr->cspr", r, iso_basis, optimize=True)
+    k7 = np.stack([res.K7 for res in results], axis=0)
+    k7_inv = np.linalg.inv(k7)
+    strains = np.einsum("smj,csj->csm", k7_inv, r, optimize=True)
+    comp_res = np.einsum("csm,spmr->cspr", strains, comp_basis, optimize=True)
+    iso_res = np.einsum("csm,spmr->cspr", strains, iso_basis, optimize=True)
     ABD_inv = np.stack([res.ABD_inv for res in results], axis=0)
     Q_bar = np.stack([res.Q_bar for res in results], axis=0)
     T_ply = np.stack([res.T_ply for res in results], axis=0)
