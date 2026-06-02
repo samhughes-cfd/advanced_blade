@@ -20,6 +20,7 @@ from blade_precompute.section_properties.engine.materials import OrthotropicPly 
 from blade_precompute.section_optimisation.engine.mitc4_eval import (  # noqa: E402
     LaminateDefinitionMitc4SkinAdapter,
     _coerce_skin_lam_for_mitc4,
+    _spar_x_metres,
 )
 
 
@@ -73,3 +74,10 @@ def test_coerce_passes_through_non_laminate_definition() -> None:
     raw = Laminate(E=20e9, t=0.006, nu=0.35, n_plies=4)
     assert _coerce_skin_lam_for_mitc4(raw) is raw
     assert _coerce_skin_lam_for_mitc4(None) is None
+
+
+def test_spar_x_metres_converts_half_chord_web_positions() -> None:
+    """OptimBladeGeometry stores webs as frac - 0.5; MITC4 needs physical x."""
+    web_positions = np.array([-0.35, 0.0], dtype=np.float64)
+
+    assert _spar_x_metres(web_positions, chord_m=1.6) == pytest.approx([0.24, 0.8])

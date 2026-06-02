@@ -432,7 +432,7 @@ def build_section(
     Parameters
     ----------
     airfoil         : (N,2) array
-    spar_positions  : list of float — spar web x/c positions
+    spar_positions  : list of float — spar web x-coordinates in the same units as ``airfoil``
     cap_width       : float — cap chord extent [m] (for area calculation)
     cap_height      : float — cap thickness [m]
 
@@ -450,7 +450,9 @@ def build_section(
     n_half = len(airfoil) // 2
     upper_full = airfoil[:n_half]
     lower_full = airfoil[n_half:]
-    all_x = [0.0] + sorted(spar_positions) + [1.0]
+    x_le = float(np.min(np.asarray(airfoil, dtype=float)[:, 0]))
+    x_te = float(np.max(np.asarray(airfoil, dtype=float)[:, 0]))
+    all_x = [x_le] + sorted(spar_positions) + [x_te]
     A_cap = cap_width * cap_height
 
     upper_skins = []; lower_skins = []
@@ -478,14 +480,14 @@ def build_section(
 
         # Boom at right end of upper skin (not at TE)
         boom_u = None
-        if x1 < 1.0 - 1e-9:
+        if x1 < x_te - 1e-9:
             boom_u = BoomNode(y=p1u[0], z=p1u[1], A_cap=A_cap,
                               label=f"Cap U @ {x1:.2f}c")
             booms.append(boom_u)
 
         # Boom at left end of lower skin (not at LE)
         boom_l = None
-        if x0 > 1e-9:
+        if x0 > x_le + 1e-9:
             boom_l = BoomNode(y=p0l[0], z=p0l[1], A_cap=A_cap,
                               label=f"Cap L @ {x0:.2f}c")
             booms.append(boom_l)
@@ -494,7 +496,7 @@ def build_section(
         lower_skins.append(Panel(l_nodes, sl, i, boom_l, f"LSkin C{i+1}"))
 
         # Shear web at x1 (top → bottom)
-        if x1 < 1.0 - 1e-9:
+        if x1 < x_te - 1e-9:
             w_nodes = np.column_stack([
                 np.full(20, x1),
                 np.linspace(p1u[1], p1l[1], 20)
