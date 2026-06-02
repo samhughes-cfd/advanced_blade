@@ -139,6 +139,22 @@ def test_six_series_airfoil_converted_for_multicell_run_section() -> None:
     run_section(via_station, [0.4], N=0.0, Vy=1.0, Vz=0.0, My=0.0, Mz=0.0, T=0.0)
 
 
+def test_build_section_uses_airfoil_trailing_edge_for_metre_scaled_profiles() -> None:
+    """Legacy thin-wall topology must cover the full chord of metre-scaled airfoils."""
+    from multi_cell_blade_section import build_section, naca_four_digit  # type: ignore[import-untyped]
+
+    chord_m = 1.7
+    airfoil = naca_four_digit(m=0.02, p=0.4, t_c=0.15, n=80) * chord_m
+    panels, _booms, _webs, _n_cells = build_section(
+        airfoil,
+        [0.33 * chord_m, 0.67 * chord_m],
+    )
+
+    max_panel_x = max(float(np.max(p.nodes[:, 0])) for p in panels)
+    assert max_panel_x == np.max(airfoil[:, 0])
+    assert max_panel_x > 1.0
+
+
 def test_clpt_fi_on_section_geometry_writes_png(tmp_path) -> None:
     """MVP geometry map: Hashin FI per MITC4 element on section (y,z) writes a PNG file."""
     from multi_cell_blade_section import naca_four_digit  # type: ignore[import-untyped]
